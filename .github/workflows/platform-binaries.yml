@@ -1,15 +1,13 @@
 name: Publish Platform Binaries
 
 on:
-  release:
-    types: [published]
   push:
     tags:
       - 'v*'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g., 5.1.1)'
+        description: 'Version to publish (e.g., 5.2.5)'
         required: false
       dry_run:
         description: 'Dry run (skip npm publish)'
@@ -72,80 +70,124 @@ jobs:
           path: bin/
           retention-days: 1
 
-  publish-packages:
-    name: Publish platform npm packages
+  # Publish each platform package as a separate job so each gets its own
+  # OIDC provenance token (npm trusted publishing requires 1 package per job)
+  publish-darwin-arm64:
+    name: Publish @recursive-llm/darwin-arm64
     needs: build-binaries
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-
-      - name: Download all binaries
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          path: artifacts
-
-      - name: Organize binaries
-        run: |
-          mkdir -p collected-binaries
-          # Rename to match expected format for build-platform-packages.js
-          for dir in artifacts/binary-*/; do
-            platform=$(basename "$dir" | sed 's/binary-//')
-            os=$(echo "$platform" | cut -d- -f1)
-            arch=$(echo "$platform" | cut -d- -f2)
-            if [ -f "${dir}rlm-go.exe" ]; then
-              cp "${dir}rlm-go.exe" "collected-binaries/rlm-${os}-${arch}.exe"
-            elif [ -f "${dir}rlm-go" ]; then
-              cp "${dir}rlm-go" "collected-binaries/rlm-${os}-${arch}"
-            fi
-          done
-          ls -lh collected-binaries/
-
-      - name: Determine version
-        id: version
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION=$(node -p "require('./package.json').version")
-          fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Publishing platform packages v${VERSION}"
-
-      - name: Build platform packages
-        run: |
-          node scripts/build-platform-packages.js \
-            --version ${{ steps.version.outputs.version }} \
-            --skip-build \
-            --binaries-dir collected-binaries \
-            --out-dir platform-packages
-
-      - name: Publish platform packages
+          name: binary-darwin-arm64
+          path: bin
+      - name: Build and publish
         if: ${{ !inputs.dry_run }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for dir in platform-packages/*/; do
-            pkg_name=$(node -p "require('./${dir}package.json').name")
-            echo "Publishing ${pkg_name}..."
-            cd "$dir"
-            npm publish --provenance --access public || echo "Failed to publish ${pkg_name} (may already exist)"
-            cd - > /dev/null
-          done
+          VERSION=${{ github.event.inputs.version || '' }}
+          [ -z "$VERSION" ] && VERSION=$(node -p "require('./package.json').version")
+          node scripts/publish-platform-package.js darwin arm64 "$VERSION" bin/rlm-go
 
-      - name: Dry run summary
-        if: ${{ inputs.dry_run }}
+  publish-darwin-x64:
+    name: Publish @recursive-llm/darwin-x64
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-darwin-amd64
+          path: bin
+      - name: Build and publish
+        if: ${{ !inputs.dry_run }}
         run: |
-          echo "## Dry Run Summary" >> $GITHUB_STEP_SUMMARY
-          for dir in platform-packages/*/; do
-            pkg_name=$(node -p "require('./${dir}package.json').name")
-            echo "- ${pkg_name}" >> $GITHUB_STEP_SUMMARY
-            npm pack --dry-run "${dir}" 2>&1 | tail -5
-          done
+          VERSION=${{ github.event.inputs.version || '' }}
+          [ -z "$VERSION" ] && VERSION=$(node -p "require('./package.json').version")
+          node scripts/publish-platform-package.js darwin x64 "$VERSION" bin/rlm-go
+
+  publish-linux-x64:
+    name: Publish @recursive-llm/linux-x64
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-linux-amd64
+          path: bin
+      - name: Build and publish
+        if: ${{ !inputs.dry_run }}
+        run: |
+          VERSION=${{ github.event.inputs.version || '' }}
+          [ -z "$VERSION" ] && VERSION=$(node -p "require('./package.json').version")
+          node scripts/publish-platform-package.js linux x64 "$VERSION" bin/rlm-go
+
+  publish-linux-arm64:
+    name: Publish @recursive-llm/linux-arm64
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-linux-arm64
+          path: bin
+      - name: Build and publish
+        if: ${{ !inputs.dry_run }}
+        run: |
+          VERSION=${{ github.event.inputs.version || '' }}
+          [ -z "$VERSION" ] && VERSION=$(node -p "require('./package.json').version")
+          node scripts/publish-platform-package.js linux arm64 "$VERSION" bin/rlm-go
+
+  publish-win32-x64:
+    name: Publish @recursive-llm/win32-x64
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-windows-amd64
+          path: bin
+      - name: Build and publish
+        if: ${{ !inputs.dry_run }}
+        run: |
+          VERSION=${{ github.event.inputs.version || '' }}
+          [ -z "$VERSION" ] && VERSION=$(node -p "require('./package.json').version")
+          node scripts/publish-platform-package.js win32 x64 "$VERSION" bin/rlm-go.exe
