@@ -2,8 +2,36 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { Bridge, RLMConfig, RLMResult } from './bridge-interface';
+import { PKG_ROOT_DIR } from './pkg-dir';
 
 const DEFAULT_BINARY_NAME = process.platform === 'win32' ? 'rlm-go.exe' : 'rlm-go';
+
+/** Platform-specific npm package names for pre-built binaries */
+const PLATFORM_PACKAGES: Record<string, string> = {
+  'darwin-arm64': '@recursive-llm/darwin-arm64',
+  'darwin-x64': '@recursive-llm/darwin-x64',
+  'linux-x64': '@recursive-llm/linux-x64',
+  'linux-arm64': '@recursive-llm/linux-arm64',
+  'win32-x64': '@recursive-llm/win32-x64',
+};
+
+function resolvePlatformBinary(): string | null {
+  const platform = process.platform;
+  const arch = process.arch;
+  const key = `${platform}-${arch}`;
+  const pkgName = PLATFORM_PACKAGES[key];
+  if (!pkgName) return null;
+
+  try {
+    // require.resolve works in both CJS and ESM (via createRequire)
+    const pkgDir = path.dirname(require.resolve(`${pkgName}/package.json`));
+    const binPath = path.join(pkgDir, 'bin', DEFAULT_BINARY_NAME);
+    if (fs.existsSync(binPath)) return binPath;
+  } catch {
+    // Package not installed — fall through
+  }
+  return null;
+}
 
 function resolveBinaryPath(rlmConfig: RLMConfig): string {
   const configuredPath = rlmConfig.go_binary_path || process.env.RLM_GO_BINARY;
@@ -11,10 +39,14 @@ function resolveBinaryPath(rlmConfig: RLMConfig): string {
     return configuredPath;
   }
 
-  // Try multiple locations
+  // 1. Try platform-specific npm package (pre-built binary)
+  const platformBin = resolvePlatformBinary();
+  if (platformBin) return platformBin;
+
+  // 2. Try local locations
   const possiblePaths = [
-    path.join(__dirname, '..', 'bin', DEFAULT_BINARY_NAME),  // NPM package (primary)
-    path.join(__dirname, '..', 'go', DEFAULT_BINARY_NAME),  // Development fallback
+    path.join(PKG_ROOT_DIR, 'bin', DEFAULT_BINARY_NAME),  // NPM package (primary)
+    path.join(PKG_ROOT_DIR, 'go', DEFAULT_BINARY_NAME),   // Development fallback
   ];
 
   for (const p of possiblePaths) {

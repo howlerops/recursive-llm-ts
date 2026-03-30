@@ -1,0 +1,23 @@
+FROM node:20-slim
+
+WORKDIR /app
+
+# Create an ESM consumer project
+RUN echo '{"name":"esm-test","type":"module","dependencies":{"recursive-llm-ts":"file:./pkg"}}' > package.json
+
+# Copy the package (will be mounted or copied in)
+COPY . /app/pkg/
+
+# Install
+RUN cd pkg && npm run build && cd /app && npm install --ignore-scripts
+
+# Test: import the ESM entry point
+RUN echo 'import { RLM, RLMError, classifyError } from "recursive-llm-ts"; \
+console.log("ESM import OK"); \
+console.log("RLM:", typeof RLM); \
+console.log("RLMError:", typeof RLMError); \
+console.log("classifyError:", typeof classifyError); \
+if (typeof RLM !== "function") process.exit(1); \
+console.log("ALL ESM CHECKS PASSED");' > test.mjs
+
+CMD ["node", "test.mjs"]

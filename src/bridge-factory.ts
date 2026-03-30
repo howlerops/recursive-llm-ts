@@ -1,13 +1,35 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Bridge } from './bridge-interface';
+import { PKG_ROOT_DIR } from './pkg-dir';
 
 export type BridgeType = 'go';
 
 const DEFAULT_GO_BINARY = process.platform === 'win32' ? 'rlm-go.exe' : 'rlm-go';
 
 function resolveDefaultGoBinary(): string {
-  return path.join(__dirname, '..', 'bin', DEFAULT_GO_BINARY);
+  return path.join(PKG_ROOT_DIR, 'bin', DEFAULT_GO_BINARY);
+}
+
+/** Platform-specific npm package names for pre-built binaries */
+const PLATFORM_PACKAGES: Record<string, string> = {
+  'darwin-arm64': '@recursive-llm/darwin-arm64',
+  'darwin-x64': '@recursive-llm/darwin-x64',
+  'linux-x64': '@recursive-llm/linux-x64',
+  'linux-arm64': '@recursive-llm/linux-arm64',
+  'win32-x64': '@recursive-llm/win32-x64',
+};
+
+function isPlatformBinaryAvailable(): boolean {
+  const key = `${process.platform}-${process.arch}`;
+  const pkgName = PLATFORM_PACKAGES[key];
+  if (!pkgName) return false;
+  try {
+    const pkgDir = path.dirname(require.resolve(`${pkgName}/package.json`));
+    return fs.existsSync(path.join(pkgDir, 'bin', DEFAULT_GO_BINARY));
+  } catch {
+    return false;
+  }
 }
 
 function isGoBinaryAvailable(): boolean {
@@ -15,6 +37,7 @@ function isGoBinaryAvailable(): boolean {
   if (envPath && fs.existsSync(envPath)) {
     return true;
   }
+  if (isPlatformBinaryAvailable()) return true;
   return fs.existsSync(resolveDefaultGoBinary());
 }
 

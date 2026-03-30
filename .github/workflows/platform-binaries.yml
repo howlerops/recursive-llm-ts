@@ -1,0 +1,151 @@
+name: Publish Platform Binaries
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 5.1.1)'
+        required: false
+      dry_run:
+        description: 'Dry run (skip npm publish)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-binaries:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+          - os: darwin
+            arch: amd64
+            runner: macos-15
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+      fail-fast: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Build binary
+        run: |
+          cd go
+          mkdir -p ../bin
+          BINARY_NAME=${{ matrix.os == 'windows' && 'rlm-go.exe' || 'rlm-go' }}
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 \
+            go build -ldflags="-s -w" -o "../bin/${BINARY_NAME}" ./cmd/rlm
+          ls -lh ../bin/
+        shell: bash
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.os }}-${{ matrix.arch }}
+          path: bin/
+          retention-days: 1
+
+  publish-packages:
+    name: Publish platform npm packages
+    needs: build-binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Organize binaries
+        run: |
+          mkdir -p collected-binaries
+          # Rename to match expected format for build-platform-packages.js
+          for dir in artifacts/binary-*/; do
+            platform=$(basename "$dir" | sed 's/binary-//')
+            os=$(echo "$platform" | cut -d- -f1)
+            arch=$(echo "$platform" | cut -d- -f2)
+            if [ -f "${dir}rlm-go.exe" ]; then
+              cp "${dir}rlm-go.exe" "collected-binaries/rlm-${os}-${arch}.exe"
+            elif [ -f "${dir}rlm-go" ]; then
+              cp "${dir}rlm-go" "collected-binaries/rlm-${os}-${arch}"
+            fi
+          done
+          ls -lh collected-binaries/
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Publishing platform packages v${VERSION}"
+
+      - name: Build platform packages
+        run: |
+          node scripts/build-platform-packages.js \
+            --version ${{ steps.version.outputs.version }} \
+            --skip-build \
+            --binaries-dir collected-binaries \
+            --out-dir platform-packages
+
+      - name: Publish platform packages
+        if: ${{ !inputs.dry_run }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for dir in platform-packages/*/; do
+            pkg_name=$(node -p "require('${dir}package.json').name")
+            echo "Publishing ${pkg_name}..."
+            cd "$dir"
+            npm publish --provenance --access public || echo "Failed to publish ${pkg_name} (may already exist)"
+            cd - > /dev/null
+          done
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "## Dry Run Summary" >> $GITHUB_STEP_SUMMARY
+          for dir in platform-packages/*/; do
+            pkg_name=$(node -p "require('${dir}package.json').name")
+            echo "- ${pkg_name}" >> $GITHUB_STEP_SUMMARY
+            npm pack --dry-run "${dir}" 2>&1 | tail -5
+          done

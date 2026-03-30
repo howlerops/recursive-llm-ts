@@ -9,6 +9,32 @@ const binDir = path.join(repoRoot, 'bin');
 const binaryName = process.platform === 'win32' ? 'rlm-go.exe' : 'rlm-go';
 const binaryPath = path.join(binDir, binaryName);
 
+// ── Check if a pre-built platform package provides the binary ──────────
+const PLATFORM_PACKAGES = {
+  'darwin-arm64': '@recursive-llm/darwin-arm64',
+  'darwin-x64':   '@recursive-llm/darwin-x64',
+  'linux-x64':    '@recursive-llm/linux-x64',
+  'linux-arm64':  '@recursive-llm/linux-arm64',
+  'win32-x64':    '@recursive-llm/win32-x64',
+};
+
+const platformKey = `${process.platform}-${process.arch}`;
+const platformPkg = PLATFORM_PACKAGES[platformKey];
+
+if (platformPkg) {
+  try {
+    const pkgDir = path.dirname(require.resolve(`${platformPkg}/package.json`));
+    const platformBinary = path.join(pkgDir, 'bin', binaryName);
+    if (fs.existsSync(platformBinary)) {
+      console.log(`[recursive-llm-ts] ✓ Pre-built binary found via ${platformPkg}`);
+      process.exit(0);
+    }
+  } catch {
+    // Package not installed — continue to local build
+  }
+}
+
+// ── Existing local build logic ─────────────────────────────────────────
 function goAvailable() {
   try {
     execFileSync('go', ['version'], { stdio: 'ignore' });

@@ -1,18 +1,21 @@
 {
   "name": "recursive-llm-ts",
-  "version": "5.1.1",
+  "version": "5.2.0",
   "description": "TypeScript bridge for recursive-llm: Recursive Language Models for unbounded context processing with structured outputs",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/cjs/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "require": "./dist/index.js",
-      "default": "./dist/index.js"
+      "types": "./dist/cjs/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "default": "./dist/cjs/index.js"
     }
   },
   "files": [
-    "dist",
+    "dist/cjs",
+    "dist/esm",
     "go/cmd",
     "go/go.mod",
     "go/go.sum",
@@ -21,7 +24,9 @@
     "scripts/build-go-binary.js"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json && node scripts/post-build.js",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build:esm": "tsc -p tsconfig.esm.json",
     "postinstall": "node scripts/build-go-binary.js",
     "prepublishOnly": "npm run build",
     "release": "./scripts/release.sh",
@@ -73,6 +78,13 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
     "vitest": "^4.0.18"
+  },
+  "optionalDependencies": {
+    "@recursive-llm/darwin-arm64": "5.2.0",
+    "@recursive-llm/darwin-x64": "5.2.0",
+    "@recursive-llm/linux-x64": "5.2.0",
+    "@recursive-llm/linux-arm64": "5.2.0",
+    "@recursive-llm/win32-x64": "5.2.0"
   },
   "peerDependencies": {
     "@aws-sdk/client-s3": "^3.0.0"

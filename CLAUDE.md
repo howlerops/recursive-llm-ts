@@ -5,16 +5,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build Commands
 
 ```bash
-# TypeScript
-npm run build          # Compile src/ to dist/
+# TypeScript (dual CJS + ESM output)
+npm run build          # Compile src/ → dist/cjs/ + dist/esm/ + module markers
+npm run build:cjs      # CJS only
+npm run build:esm      # ESM only
 npm install            # Install deps + auto-build Go binary via postinstall
 
 # Go binary (manual)
 cd go && go build -ldflags="-s -w" -o ../bin/rlm-go ./cmd/rlm
 
+# Platform packages (cross-compile Go binaries for npm distribution)
+node scripts/build-platform-packages.js                    # Build all platforms (requires Go)
+node scripts/build-platform-packages.js --version 5.2.0    # Explicit version
+node scripts/build-platform-packages.js --skip-build --binaries-dir ./bins  # Use pre-built binaries
+
 # Release
 ./scripts/release.sh   # Interactive version bump, build, tag, push
 ```
+
+### Module Format
+
+The package ships dual CJS + ESM builds:
+- `dist/cjs/` — CommonJS output (with `{"type":"commonjs"}` marker)
+- `dist/esm/` — ES Module output (with `{"type":"module"}` marker)
+
+Consumers with `"type": "module"` in their package.json get ESM automatically via the `"import"` export condition. CJS consumers get CommonJS via `"require"`.
+
+### Platform Binary Distribution
+
+Pre-built Go binaries are distributed via platform-specific npm packages:
+- `@recursive-llm/darwin-arm64` — macOS Apple Silicon
+- `@recursive-llm/darwin-x64` — macOS Intel
+- `@recursive-llm/linux-x64` — Linux x86_64
+- `@recursive-llm/linux-arm64` — Linux ARM64
+- `@recursive-llm/win32-x64` — Windows x86_64
+
+These are listed as `optionalDependencies` — npm installs only the matching platform. The `postinstall` script skips Go compilation if a pre-built binary is found.
 
 ## Testing
 
@@ -82,8 +108,9 @@ TypeScript (parses result, exposes trace events)
 - `src/bridge-interface.ts` - Config types (RLMConfig, MetaAgentConfig, ObservabilityConfig, ContextOverflowConfig, LCMConfig, LLMMapConfig, AgenticMapConfig, DelegationRequest, TraceEvent, FileStorageConfig)
 - `src/errors.ts` - Error hierarchy including RLMContextOverflowError, classifyError()
 - `src/file-storage.ts` - File storage providers (LocalFileStorage, S3FileStorage), FileContextBuilder, S3StorageError
-- `src/go-bridge.ts` - Spawns Go binary, handles stdin/stdout JSON IPC
-- `src/bridge-factory.ts` - Runtime Go binary detection, bridge creation
+- `src/pkg-dir.ts` - Portable package directory resolution (works in both CJS and ESM)
+- `src/go-bridge.ts` - Spawns Go binary, handles stdin/stdout JSON IPC, platform package resolution
+- `src/bridge-factory.ts` - Runtime Go binary detection (platform pkg → local → env), bridge creation
 - `src/structured-types.ts` - TypeScript interfaces for structured output (SubTask, CoordinatorConfig, SchemaDecomposition)
 
 **Go:**
@@ -123,8 +150,11 @@ TypeScript (parses result, exposes trace events)
 The Go bridge looks for the binary in this order:
 1. `RLMConfig.go_binary_path` parameter
 2. `RLM_GO_BINARY` environment variable
-3. `./bin/rlm-go` (npm package location)
-4. `./go/rlm-go` (development location)
+3. Platform-specific npm package (e.g., `@recursive-llm/darwin-arm64/bin/rlm-go`)
+4. `<pkg-root>/bin/rlm-go` (npm package location)
+5. `<pkg-root>/go/rlm-go` (development location)
+
+Package root is resolved portably via `src/pkg-dir.ts` (handles both CJS `__dirname` and ESM `import.meta.url`).
 
 ### Structured Output Flow
 

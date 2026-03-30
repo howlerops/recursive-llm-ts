@@ -1,0 +1,23 @@
+FROM node:20-slim
+
+WORKDIR /app
+
+# Create a CJS consumer project (no "type": "module")
+RUN echo '{"name":"cjs-test","dependencies":{"recursive-llm-ts":"file:./pkg"}}' > package.json
+
+# Copy the package
+COPY . /app/pkg/
+
+# Install
+RUN cd pkg && npm run build && cd /app && npm install --ignore-scripts
+
+# Test: require the CJS entry point
+RUN echo 'const { RLM, RLMError, classifyError } = require("recursive-llm-ts"); \
+console.log("CJS require OK"); \
+console.log("RLM:", typeof RLM); \
+console.log("RLMError:", typeof RLMError); \
+console.log("classifyError:", typeof classifyError); \
+if (typeof RLM !== "function") process.exit(1); \
+console.log("ALL CJS CHECKS PASSED");' > test.cjs
+
+CMD ["node", "test.cjs"]
