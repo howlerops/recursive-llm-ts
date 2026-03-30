@@ -1,6 +1,6 @@
 {
   "name": "recursive-llm-ts",
-  "version": "5.2.4",
+  "version": "5.2.5",
   "description": "TypeScript bridge for recursive-llm: Recursive Language Models for unbounded context processing with structured outputs",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
@@ -78,13 +78,6 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
     "vitest": "^4.0.18"
-  },
-  "optionalDependencies": {
-    "@recursive-llm/darwin-arm64": "5.2.4",
-    "@recursive-llm/darwin-x64": "5.2.4",
-    "@recursive-llm/linux-x64": "5.2.4",
-    "@recursive-llm/linux-arm64": "5.2.4",
-    "@recursive-llm/win32-x64": "5.2.4"
   },
   "peerDependencies": {
     "@aws-sdk/client-s3": "^3.0.0"
