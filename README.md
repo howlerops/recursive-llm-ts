@@ -45,10 +45,30 @@ npm install recursive-llm-ts
 ### Prerequisites
 
 - **Node.js 16+**
-- **Go 1.25+** (for building from source during install)
-### Go Binary (Automatic)
+- **Go 1.25+** (only if you need to build the Go binary from source)
 
-The `postinstall` script automatically builds the Go binary during installation. If Go is not available, the script will warn but not fail.
+### Go Binary Resolution
+
+On supported platforms, npm installs a matching pre-built binary package automatically:
+
+- `@recursive-llm/darwin-arm64`
+- `@recursive-llm/darwin-x64`
+- `@recursive-llm/linux-x64`
+- `@recursive-llm/linux-arm64`
+- `@recursive-llm/win32-x64`
+
+This is the default path for most Linux containers, so Go is usually not required in container images.
+
+The bridge resolves the binary in this order:
+
+1. `config.go_binary_path`
+2. `RLM_GO_BINARY`
+3. Matching `@recursive-llm/<platform>` package
+4. Local `bin/rlm-go` or `go/rlm-go`
+
+### Go Binary (Automatic Fallback)
+
+When no matching pre-built binary is available, the `postinstall` script attempts to build the Go binary during installation. If Go is not available, the script will warn but not fail.
 
 If you need to build manually:
 
@@ -1012,24 +1032,16 @@ See the [LiteLLM documentation](https://docs.litellm.ai/docs/providers) for the 
 
 ## Docker Deployment
 
-### Basic Dockerfile with Go Build
+### Option 1: Use the Published Linux Binary Package
 
-To containerize your application that uses `recursive-llm-ts`, install Go 1.25+ in your Docker image to build the binary during `npm install`:
+On `linux-x64` and `linux-arm64`, `npm ci --omit=dev` installs the matching `@recursive-llm/linux-*` package automatically. This is the simplest container setup and does not require Go or `RLM_GO_BINARY`.
 
 ```dockerfile
-FROM node:20-alpine
-
-# Install Go 1.25+ for building the RLM binary
-RUN apk add --no-cache go
-
-# Set Go environment
-ENV GOPATH=/go
-ENV PATH=$PATH:$GOPATH/bin
-
+FROM node:22-alpine
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+RUN npm ci --omit=dev
 
 COPY . .
 
@@ -1039,9 +1051,31 @@ ENV NODE_ENV=production
 CMD ["node", "your-app.js"]
 ```
 
-### Multi-Stage Build (Recommended for Production)
+### Option 2: Copy or Mount a Custom Binary
 
-For optimal image size and security, use a multi-stage build:
+Use this when you build the Go binary elsewhere and want to point the package at an explicit path.
+
+```dockerfile
+FROM node:22-alpine
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
+COPY . .
+COPY ./bin/rlm-go /app/bin/rlm-go
+RUN chmod +x /app/bin/rlm-go
+
+ENV OPENAI_API_KEY=""
+ENV NODE_ENV=production
+ENV RLM_GO_BINARY=/app/bin/rlm-go
+
+CMD ["node", "your-app.js"]
+```
+
+### Option 3: Build from Source in a Multi-Stage Image
+
+Use this for unsupported targets or when you need a custom-compiled binary.
 
 ```dockerfile
 # Stage 1: Build the Go binary
@@ -1053,30 +1087,29 @@ COPY go/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o rlm-go ./cmd/rlm
 
 # Stage 2: Build Node.js dependencies
-FROM node:20-alpine AS node-builder
+FROM node:22-alpine AS node-builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --ignore-scripts
 
 # Stage 3: Final runtime image
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 
 COPY --from=node-builder /app/node_modules ./node_modules
 COPY --from=go-builder /build/rlm-go ./bin/rlm-go
 RUN chmod +x ./bin/rlm-go
 
-COPY package*.json ./
-COPY dist/ ./dist/
+COPY . .
 
 ENV NODE_ENV=production
 ENV RLM_GO_BINARY=/app/bin/rlm-go
 ENV OPENAI_API_KEY=""
 
-CMD ["node", "dist/index.js"]
+CMD ["node", "your-app.js"]
 ```
 
-**Benefits:** Smaller image (~150MB vs ~500MB), faster builds with caching, more secure.
+**Benefits:** Small runtime image, deterministic binary path, and no Go toolchain in the final image.
 
 ### Docker Compose
 
@@ -1101,8 +1134,11 @@ RUN apk add --no-cache go
 # Debian/Ubuntu
 RUN apt-get update && apt-get install -y golang-1.25
 
-# Or use pre-built binary (no Go required)
-# Download from GitHub releases and copy to /app/bin/rlm-go
+# Or use the published platform package (no Go required)
+# npm ci --omit=dev installs @recursive-llm/linux-x64 or @recursive-llm/linux-arm64 automatically
+
+# Or use a release binary explicitly
+# Download from GitHub Releases and set RLM_GO_BINARY=/app/bin/rlm-go
 ```
 
 ## Using the Go Module Directly

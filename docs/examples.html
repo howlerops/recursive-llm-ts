@@ -501,8 +501,43 @@ func main() {
         <div class="api-section">
           <h3 id="example-docker">Docker Deployment</h3>
           <p style="color: var(--text-secondary); margin-bottom: 16px;">
-            Production-ready multi-stage Docker build for minimal image size.
+            Three supported container options: auto-installed Linux platform package, explicit binary path, or source-build fallback.
           </p>
+
+          <p style="color: var(--text-secondary); margin-bottom: 12px;"><strong>Option 1:</strong> Use the published Linux binary package. This is the simplest path for <code>linux-x64</code> and <code>linux-arm64</code> containers.</p>
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-lang">Dockerfile</span>
+              <button class="code-copy">Copy</button>
+            </div>
+            <pre><code data-lang="bash">FROM node:22-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY . .
+ENV NODE_ENV=production
+CMD ["node", "your-app.js"]</code></pre>
+          </div>
+
+          <p style="color: var(--text-secondary); margin: 18px 0 12px;"><strong>Option 2:</strong> Copy or mount your own binary and point <code>RLM_GO_BINARY</code> at it.</p>
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-lang">Dockerfile</span>
+              <button class="code-copy">Copy</button>
+            </div>
+            <pre><code data-lang="bash">FROM node:22-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
+COPY . .
+COPY ./bin/rlm-go /app/bin/rlm-go
+RUN chmod +x /app/bin/rlm-go
+ENV NODE_ENV=production
+ENV RLM_GO_BINARY=/app/bin/rlm-go
+CMD ["node", "your-app.js"]</code></pre>
+          </div>
+
+          <p style="color: var(--text-secondary); margin: 18px 0 12px;"><strong>Option 3:</strong> Build the binary from source in a multi-stage image.</p>
           <div class="code-block">
             <div class="code-header">
               <span class="code-lang">Dockerfile</span>
@@ -517,27 +552,24 @@ COPY go/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o rlm-go ./cmd/rlm
 
 # Stage 2: Build Node.js
-FROM node:20-alpine AS node-builder
+FROM node:22-alpine AS node-builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --ignore-scripts
 
 # Stage 3: Runtime
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 
 COPY --from=node-builder /app/node_modules ./node_modules
 COPY --from=go-builder /build/rlm-go ./bin/rlm-go
 RUN chmod +x ./bin/rlm-go
 
-COPY package*.json ./
-COPY dist/ ./dist/
+COPY . .
 
 ENV NODE_ENV=production
 ENV RLM_GO_BINARY=/app/bin/rlm-go
-ENV OPENAI_API_KEY=""
-
-CMD ["node", "dist/index.js"]</code></pre>
+CMD ["node", "your-app.js"]</code></pre>
           </div>
         </div>
 
