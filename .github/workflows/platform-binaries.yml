@@ -133,7 +133,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for dir in platform-packages/*/; do
-            pkg_name=$(node -p "require('${dir}package.json').name")
+            pkg_name=$(node -p "require('./${dir}package.json').name")
             echo "Publishing ${pkg_name}..."
             cd "$dir"
             npm publish --provenance --access public || echo "Failed to publish ${pkg_name} (may already exist)"
@@ -145,7 +145,7 @@ jobs:
         run: |
           echo "## Dry Run Summary" >> $GITHUB_STEP_SUMMARY
           for dir in platform-packages/*/; do
-            pkg_name=$(node -p "require('${dir}package.json').name")
+            pkg_name=$(node -p "require('./${dir}package.json').name")
             echo "- ${pkg_name}" >> $GITHUB_STEP_SUMMARY
             npm pack --dry-run "${dir}" 2>&1 | tail -5
           done
