@@ -67,7 +67,7 @@ jobs:
           cache-dependency-path: go/go.sum
 
       - name: Install dependencies
-        run: npm ci --omit=optional
+        run: npm install --ignore-scripts
 
       - name: Build package
         run: npm run build
