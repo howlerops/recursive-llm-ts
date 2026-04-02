@@ -15,6 +15,50 @@ const PLATFORM_PACKAGES: Record<string, string> = {
   'win32-x64': '@recursive-llm/win32-x64',
 };
 
+/**
+ * Walk up the directory tree from a starting point, looking for the platform
+ * package binary inside node_modules directories. This handles pnpm's strict
+ * isolation where require.resolve() cannot find optional dependencies.
+ */
+function findBinaryInNodeModules(pkgName: string): string | null {
+  let dir = PKG_ROOT_DIR;
+  const seenDirs = new Set<string>();
+  while (dir && !seenDirs.has(dir)) {
+    seenDirs.add(dir);
+
+    // Standard node_modules layout (npm, yarn)
+    const candidate = path.join(dir, 'node_modules', pkgName, 'bin', DEFAULT_BINARY_NAME);
+    if (fs.existsSync(candidate)) return candidate;
+
+    // pnpm hoisted node_modules (the package may be hoisted even under pnpm)
+    // Also check .pnpm directory where pnpm stores the actual package contents
+    const pnpmDir = path.join(dir, 'node_modules', '.pnpm');
+    if (fs.existsSync(pnpmDir)) {
+      // pnpm stores packages as: .pnpm/<name>@<version>/node_modules/<name>/
+      // where scoped packages use + instead of / in the directory name
+      const pnpmName = pkgName.replace('/', '+');
+      try {
+        const entries = fs.readdirSync(pnpmDir);
+        for (const entry of entries) {
+          if (entry.startsWith(pnpmName + '@')) {
+            const pnpmCandidate = path.join(
+              pnpmDir, entry, 'node_modules', pkgName, 'bin', DEFAULT_BINARY_NAME
+            );
+            if (fs.existsSync(pnpmCandidate)) return pnpmCandidate;
+          }
+        }
+      } catch {
+        // Permission error or similar — skip
+      }
+    }
+
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
 function resolvePlatformBinary(): string | null {
   const platform = process.platform;
   const arch = process.arch;
@@ -22,15 +66,17 @@ function resolvePlatformBinary(): string | null {
   const pkgName = PLATFORM_PACKAGES[key];
   if (!pkgName) return null;
 
+  // 1. Try require.resolve (works with npm, yarn, and non-strict pnpm)
   try {
-    // require.resolve works in both CJS and ESM (via createRequire)
     const pkgDir = path.dirname(require.resolve(`${pkgName}/package.json`));
     const binPath = path.join(pkgDir, 'bin', DEFAULT_BINARY_NAME);
     if (fs.existsSync(binPath)) return binPath;
   } catch {
-    // Package not installed — fall through
+    // Package not resolvable via require — fall through to filesystem search
   }
-  return null;
+
+  // 2. Walk up directory tree looking in node_modules (handles pnpm strict isolation)
+  return findBinaryInNodeModules(pkgName);
 }
 
 function resolveBinaryPath(rlmConfig: RLMConfig): string {
