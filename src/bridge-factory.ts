@@ -20,16 +20,62 @@ const PLATFORM_PACKAGES: Record<string, string> = {
   'win32-x64': '@recursive-llm/win32-x64',
 };
 
+/**
+ * Walk up the directory tree from PKG_ROOT_DIR, looking for the platform
+ * package binary inside node_modules directories. This handles pnpm's strict
+ * isolation where require.resolve() cannot find optional dependencies.
+ */
+function findBinaryInNodeModules(pkgName: string): boolean {
+  let dir = PKG_ROOT_DIR;
+  const seenDirs = new Set<string>();
+  while (dir && !seenDirs.has(dir)) {
+    seenDirs.add(dir);
+
+    // Standard node_modules layout (npm, yarn)
+    const candidate = path.join(dir, 'node_modules', pkgName, 'bin', DEFAULT_GO_BINARY);
+    if (fs.existsSync(candidate)) return true;
+
+    // pnpm .pnpm directory
+    const pnpmDir = path.join(dir, 'node_modules', '.pnpm');
+    if (fs.existsSync(pnpmDir)) {
+      const pnpmName = pkgName.replace('/', '+');
+      try {
+        const entries = fs.readdirSync(pnpmDir);
+        for (const entry of entries) {
+          if (entry.startsWith(pnpmName + '@')) {
+            const pnpmCandidate = path.join(
+              pnpmDir, entry, 'node_modules', pkgName, 'bin', DEFAULT_GO_BINARY
+            );
+            if (fs.existsSync(pnpmCandidate)) return true;
+          }
+        }
+      } catch {
+        // Permission error or similar — skip
+      }
+    }
+
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return false;
+}
+
 function isPlatformBinaryAvailable(): boolean {
   const key = `${process.platform}-${process.arch}`;
   const pkgName = PLATFORM_PACKAGES[key];
   if (!pkgName) return false;
+
+  // 1. Try require.resolve (works with npm, yarn, and non-strict pnpm)
   try {
     const pkgDir = path.dirname(require.resolve(`${pkgName}/package.json`));
-    return fs.existsSync(path.join(pkgDir, 'bin', DEFAULT_GO_BINARY));
+    if (fs.existsSync(path.join(pkgDir, 'bin', DEFAULT_GO_BINARY))) return true;
   } catch {
-    return false;
+    // Fall through to filesystem search
   }
+
+  // 2. Walk up directory tree looking in node_modules (handles pnpm strict isolation)
+  return findBinaryInNodeModules(pkgName);
 }
 
 function isGoBinaryAvailable(): boolean {

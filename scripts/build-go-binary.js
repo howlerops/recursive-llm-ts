@@ -21,7 +21,49 @@ const PLATFORM_PACKAGES = {
 const platformKey = `${process.platform}-${process.arch}`;
 const platformPkg = PLATFORM_PACKAGES[platformKey];
 
+/**
+ * Walk up the directory tree from repoRoot looking for the platform package
+ * binary inside node_modules directories. Handles pnpm's strict isolation
+ * where require.resolve() cannot find optional dependencies.
+ */
+function findBinaryInNodeModules(pkgName) {
+  let dir = repoRoot;
+  const seenDirs = new Set();
+  while (dir && !seenDirs.has(dir)) {
+    seenDirs.add(dir);
+
+    // Standard node_modules layout (npm, yarn)
+    const candidate = path.join(dir, 'node_modules', pkgName, 'bin', binaryName);
+    if (fs.existsSync(candidate)) return candidate;
+
+    // pnpm .pnpm directory
+    const pnpmDir = path.join(dir, 'node_modules', '.pnpm');
+    if (fs.existsSync(pnpmDir)) {
+      const pnpmName = pkgName.replace('/', '+');
+      try {
+        const entries = fs.readdirSync(pnpmDir);
+        for (const entry of entries) {
+          if (entry.startsWith(pnpmName + '@')) {
+            const pnpmCandidate = path.join(
+              pnpmDir, entry, 'node_modules', pkgName, 'bin', binaryName
+            );
+            if (fs.existsSync(pnpmCandidate)) return pnpmCandidate;
+          }
+        }
+      } catch {
+        // Permission error or similar — skip
+      }
+    }
+
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
 if (platformPkg) {
+  // 1. Try require.resolve (works with npm, yarn, and non-strict pnpm)
   try {
     const pkgDir = path.dirname(require.resolve(`${platformPkg}/package.json`));
     const platformBinary = path.join(pkgDir, 'bin', binaryName);
@@ -30,7 +72,14 @@ if (platformPkg) {
       process.exit(0);
     }
   } catch {
-    // Package not installed — continue to local build
+    // Package not resolvable via require — fall through to filesystem search
+  }
+
+  // 2. Walk up directory tree looking in node_modules (handles pnpm strict isolation)
+  const found = findBinaryInNodeModules(platformPkg);
+  if (found) {
+    console.log(`[recursive-llm-ts] ✓ Pre-built binary found at ${found}`);
+    process.exit(0);
   }
 }
 
