@@ -155,10 +155,17 @@ if grep -q '__dirname' dist/cjs/bridge-factory.js; then
 fi
 echo "  ✓ dist/cjs/bridge-factory.js: no __dirname"
 
-# pkg-dir.js SHOULD have __dirname (it's the one place that uses it safely)
-if grep -q '__dirname' dist/cjs/pkg-dir.js; then
-  echo "  ✓ dist/cjs/pkg-dir.js: uses __dirname (expected, with typeof guard)"
+# module-context.js is the only per-format file: __dirname in CJS, import.meta.url in ESM
+if ! grep -q '__dirname' dist/cjs/module-context.js; then
+  echo "  ✗ dist/cjs/module-context.js does not use __dirname"
+  exit 1
 fi
+echo "  ✓ dist/cjs/module-context.js: uses __dirname"
+if ! grep -q 'import.meta.url' dist/esm/module-context.js || grep -q '__dirname' dist/esm/module-context.js; then
+  echo "  ✗ dist/esm/module-context.js is not the ESM implementation"
+  exit 1
+fi
+echo "  ✓ dist/esm/module-context.js: uses import.meta.url"
 echo ""
 
 echo "=== All module format integration tests passed ==="
