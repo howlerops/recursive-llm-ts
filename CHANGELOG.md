@@ -18,7 +18,7 @@
 
 ### Internal
 - Tests for the built ESM/CJS package root, a pnpm layout fixture, config vs env resolution, and Langfuse ingestion.
-- CI and the publish workflow no longer mask `npm test` failures.
+- CI and the publish workflow no longer mask `npm test` failures. The CI Node matrix moves from 18/20 to 20/22: the test toolchain (vitest 4, vite 7) requires Node >= 20.19, and Node 18 is end-of-life.
 - Go lint (errcheck) clean on golangci-lint v2.
 
 ## [5.1.0] - 2026-03-17

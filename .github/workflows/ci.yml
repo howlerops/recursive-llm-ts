@@ -46,7 +46,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [18.x, 20.x]
+        # vitest 4 / vite 7 require Node >= 20.19 (Node 18 is EOL)
+        node-version: [20.x, 22.x]
 
     steps:
       - name: Checkout code
