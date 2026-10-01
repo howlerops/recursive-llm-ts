@@ -73,8 +73,7 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        run: npm test || echo "No tests configured"
-        continue-on-error: true
+        run: npm test
 
       - name: Check package
         run: npm pack --dry-run

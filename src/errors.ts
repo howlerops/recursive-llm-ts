@@ -114,8 +114,10 @@ export class RLMProviderError extends RLMError {
 /** Thrown when the Go binary cannot be found or fails to start. */
 export class RLMBinaryError extends RLMError {
   public readonly binaryPath: string;
+  /** Every location checked while resolving the binary (when known) */
+  public readonly searched?: string[];
 
-  constructor(opts: { message: string; binaryPath: string }) {
+  constructor(opts: { message: string; binaryPath: string; searched?: string[] }) {
     super(opts.message, {
       code: 'BINARY',
       retryable: false,
@@ -123,6 +125,7 @@ export class RLMBinaryError extends RLMError {
     });
     this.name = 'RLMBinaryError';
     this.binaryPath = opts.binaryPath;
+    this.searched = opts.searched;
   }
 }
 
