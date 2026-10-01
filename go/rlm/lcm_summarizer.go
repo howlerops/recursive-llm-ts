@@ -109,7 +109,7 @@ func (ls *LCMSummarizer) SummarizeMessages(messages []*StoreMessage, targetToken
 	// Build a formatted input from messages
 	var sb strings.Builder
 	for _, msg := range messages {
-		sb.WriteString(fmt.Sprintf("[%s] %s\n", msg.Role, msg.Content))
+		fmt.Fprintf(&sb, "[%s] %s\n", msg.Role, msg.Content)
 	}
 	return ls.Summarize(sb.String(), targetTokens)
 }

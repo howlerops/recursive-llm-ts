@@ -2,6 +2,14 @@
 
 ## [5.2.11] - 2026-10-01
 
+### Performance
+- **TextRank compression is 70–89% faster** (32k tokens: 374 ms → 41 ms). The similarity graph is now built from an inverted index over TF-IDF terms instead of comparing every sentence pair through map lookups (75–94% faster), and PageRank iterates a sparse transition matrix (up to 54% faster). Output is unchanged; `TestTextRankOptimizedMatchesReference` checks both against the original algorithm.
+
+### Build
+- Go binaries are built with Go 1.27.1 (`toolchain go1.27.1`). The module minimum stays `go 1.25.0`; CI keeps a 1.25 job to guard it.
+- golangci-lint moves to v2.14.0 (v1.64.8 cannot type-check against the Go 1.27 standard library).
+- Go 1.27's experimental SIMD packages (`simd`, `simd/archsimd`, behind `GOEXPERIMENT=simd`) were evaluated and not adopted: an AVX2/FMA PageRank kernel was no faster than scalar code, because the similarity graph is sparse.
+
 ### Fixes
 - **ESM package root** — The ESM build located the package via `new Function('return import.meta')`, which always throws, so it fell back to `process.cwd()` and looked for the Go binary relative to the caller's working directory. Per-format code now lives in `module-context` (a CJS implementation using `__dirname` and an ESM implementation using `import.meta.url`), so no output text is rewritten.
 - **`require` in the ESM build** — Platform-package lookup and the optional `@aws-sdk/client-s3` loader now use `createRequire(import.meta.url)` in ESM instead of the missing global `require`.

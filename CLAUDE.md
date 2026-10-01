@@ -69,6 +69,7 @@ go test ./rlm -run "TestContextSavings_" -v  # Context savings benchmarks (repro
 go test ./rlm -run "TestLCM|TestDelegation|TestExpand|TestAgenticMap|TestIsTotalDelegation" -v  # LCM tests (store, DAG, delegation, expand restriction)
 go test ./rlm/... -cover                # With coverage
 go test ./rlm/... -bench=. -benchmem    # Benchmarks
+go test ./rlm -run '^$' -bench 'CompressTextRank|CompressTFIDF|SimilarityGraph|PageRank|TokenizerBPE' -benchmem  # Context-reduction CPU benchmarks
 
 # Go integration tests (require built binary)
 ./go/test_simple.sh
@@ -470,6 +471,6 @@ S3 File Storage: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKE
 
 ## CI/CD
 
-- `.github/workflows/ci.yml` - Go tests + linting, then Node.js matrix (Ubuntu/macOS/Windows x Node 18/20)
+- `.github/workflows/ci.yml` - Go tests (Go 1.27.x on Ubuntu/macOS/Windows, plus Go 1.25.x minimum on Ubuntu) + golangci-lint v2, then Node.js matrix (Ubuntu/macOS/Windows x Node 20/22)
 - `.github/workflows/go-release.yml` - Cross-platform binary builds on tag push
 - `.github/workflows/publish.yml` - NPM publish on release

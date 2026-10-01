@@ -13,7 +13,15 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        go-version: ['1.25.x']
+        go-version: ['1.27.x']
+        include:
+          # go.mod declares go 1.25.0 as the minimum; keep it building there.
+          - os: ubuntu-latest
+            go-version: '1.25.x'
+
+    env:
+      # Use the selected Go version rather than auto-switching to go.mod's toolchain line.
+      GOTOOLCHAIN: local
 
     steps:
       - name: Checkout code
@@ -32,12 +40,12 @@ jobs:
         run: go test ./rlm/... -v
 
       - name: Run Go linting
-        if: matrix.os == 'ubuntu-latest'
-        uses: golangci/golangci-lint-action@v6
+        if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.27.x'
+        uses: golangci/golangci-lint-action@v8
         with:
           working-directory: go
           install-mode: goinstall
-          version: v1.64.8
+          version: v2.14.0
 
   build-and-test:
     runs-on: ${{ matrix.os }}
@@ -64,7 +72,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version: '1.27.x'
           cache-dependency-path: go/go.sum
 
       - name: Install dependencies
