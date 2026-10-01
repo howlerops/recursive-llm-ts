@@ -120,26 +120,66 @@ func cosineSimilarity(a, b tfidfVector) float64 {
 
 // BuildSimilarityGraph creates a weighted adjacency matrix of sentence similarities.
 // Only edges above the MinSimilarity threshold are kept.
+//
+// Dot products are accumulated through an inverted index (term -> sentences
+// containing it), so only sentence pairs that share a weighted term are
+// touched. Terms present in every sentence have zero IDF weight and are skipped.
 func BuildSimilarityGraph(sentences []string, config TextRankConfig) [][]float64 {
 	n := len(sentences)
+	graph := newSquareMatrix(n)
+	if n == 0 {
+		return graph
+	}
 	vectors := buildTFIDFVectors(sentences)
 
-	graph := make([][]float64, n)
-	for i := range graph {
-		graph[i] = make([]float64, n)
+	type posting struct {
+		doc    int
+		weight float64
 	}
-
-	for i := 0; i < n; i++ {
-		for j := i + 1; j < n; j++ {
-			sim := cosineSimilarity(vectors[i], vectors[j])
-			if sim >= config.MinSimilarity {
-				graph[i][j] = sim
-				graph[j][i] = sim
+	index := make(map[string][]posting)
+	for i, v := range vectors {
+		for term, weight := range v.terms {
+			if weight != 0 {
+				index[term] = append(index[term], posting{doc: i, weight: weight})
 			}
 		}
 	}
 
+	// Postings are in ascending doc order, so this fills the upper triangle.
+	for _, postings := range index {
+		for a, pa := range postings {
+			row := graph[pa.doc]
+			for _, pb := range postings[a+1:] {
+				row[pb.doc] += pa.weight * pb.weight
+			}
+		}
+	}
+
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			sim := 0.0
+			if dot := graph[i][j]; dot != 0 && vectors[i].norm != 0 && vectors[j].norm != 0 {
+				sim = dot / (vectors[i].norm * vectors[j].norm)
+			}
+			if sim < config.MinSimilarity {
+				sim = 0
+			}
+			graph[i][j] = sim
+			graph[j][i] = sim
+		}
+	}
+
 	return graph
+}
+
+// newSquareMatrix allocates an n x n matrix backed by one contiguous slice.
+func newSquareMatrix(n int) [][]float64 {
+	backing := make([]float64, n*n)
+	m := make([][]float64, n)
+	for i := range m {
+		m[i] = backing[i*n : (i+1)*n : (i+1)*n]
+	}
+	return m
 }
 
 // PageRank runs the PageRank algorithm on a weighted graph.
@@ -168,16 +208,33 @@ func PageRank(graph [][]float64, config TextRankConfig) []float64 {
 		}
 	}
 
+	// Sparse transition matrix: for each node i, the incoming edges j with
+	// weight graph[j][i] / outWeights[j]. Most pairs fall below MinSimilarity,
+	// so iterating only non-zero edges is much cheaper than a dense scan.
+	type edge struct {
+		from   int
+		weight float64
+	}
+	incoming := make([][]edge, n)
+	for j := 0; j < n; j++ {
+		if outWeights[j] <= 0 {
+			continue
+		}
+		for i := 0; i < n; i++ {
+			if w := graph[j][i]; w > 0 {
+				incoming[i] = append(incoming[i], edge{from: j, weight: w / outWeights[j]})
+			}
+		}
+	}
+
 	// Iterate until convergence
 	for iter := 0; iter < config.MaxIterations; iter++ {
 		maxDelta := 0.0
 
 		for i := 0; i < n; i++ {
 			sum := 0.0
-			for j := 0; j < n; j++ {
-				if graph[j][i] > 0 && outWeights[j] > 0 {
-					sum += graph[j][i] / outWeights[j] * scores[j]
-				}
+			for _, e := range incoming[i] {
+				sum += e.weight * scores[e.from]
 			}
 			newScores[i] = (1-d)/float64(n) + d*sum
 

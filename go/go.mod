@@ -2,7 +2,7 @@ module github.com/howlerops/recursive-llm-ts/go
 
 go 1.25.0
 
-toolchain go1.25.1
+toolchain go1.27.1
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0

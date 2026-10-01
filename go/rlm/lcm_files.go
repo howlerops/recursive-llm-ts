@@ -215,7 +215,7 @@ func describeJSONShape(sb *strings.Builder, v interface{}, prefix string, depth 
 func (h *LCMFileHandler) summarizeJSONL(content string) string {
 	lines := strings.Split(strings.TrimSpace(content), "\n")
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("JSONL file: %d lines\n", len(lines)))
+	fmt.Fprintf(&sb, "JSONL file: %d lines\n", len(lines))
 
 	// Analyze first line for schema
 	if len(lines) > 0 {
@@ -238,13 +238,13 @@ func (h *LCMFileHandler) summarizeCSV(content string, ext string) string {
 		delimiter = "\t"
 	}
 
-	sb.WriteString(fmt.Sprintf("CSV file: %d rows\n", len(lines)))
+	fmt.Fprintf(&sb, "CSV file: %d rows\n", len(lines))
 	if len(lines) > 0 {
 		headers := strings.Split(lines[0], delimiter)
-		sb.WriteString(fmt.Sprintf("Columns (%d): %s\n", len(headers), strings.Join(headers, ", ")))
+		fmt.Fprintf(&sb, "Columns (%d): %s\n", len(headers), strings.Join(headers, ", "))
 	}
 	if len(lines) > 1 {
-		sb.WriteString(fmt.Sprintf("Sample row: %s\n", lines[1]))
+		fmt.Fprintf(&sb, "Sample row: %s\n", lines[1])
 	}
 
 	return sb.String()
@@ -265,7 +265,7 @@ func (h *LCMFileHandler) summarizeCode(path string, content string, ext string) 
 func extractCodeStructure(content string, ext string) string {
 	lines := strings.Split(content, "\n")
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Code file: %d lines\n", len(lines)))
+	fmt.Fprintf(&sb, "Code file: %d lines\n", len(lines))
 
 	// Extract function/class/struct definitions
 	var defs []string
@@ -277,7 +277,7 @@ func extractCodeStructure(content string, ext string) string {
 	}
 
 	if len(defs) > 0 {
-		sb.WriteString(fmt.Sprintf("Definitions (%d):\n", len(defs)))
+		fmt.Fprintf(&sb, "Definitions (%d):\n", len(defs))
 		for _, d := range defs {
 			if len(d) > 120 {
 				d = d[:120] + "..."
@@ -295,7 +295,7 @@ func extractCodeStructure(content string, ext string) string {
 		}
 	}
 	if len(imports) > 0 {
-		sb.WriteString(fmt.Sprintf("Imports (%d):\n", len(imports)))
+		fmt.Fprintf(&sb, "Imports (%d):\n", len(imports))
 		max := 20
 		if len(imports) < max {
 			max = len(imports)
@@ -304,7 +304,7 @@ func extractCodeStructure(content string, ext string) string {
 			sb.WriteString("  " + imp + "\n")
 		}
 		if len(imports) > max {
-			sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(imports)-max))
+			fmt.Fprintf(&sb, "  ... and %d more\n", len(imports)-max)
 		}
 	}
 
