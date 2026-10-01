@@ -48,6 +48,12 @@ export class GoBridge implements Bridge {
           return;
         }
 
+        // On success stderr only carries debug logs and warnings (e.g. trace
+        // export failures); pass them through instead of discarding them.
+        if (stderr) {
+          process.stderr.write(stderr);
+        }
+
         try {
           const parsed = JSON.parse(stdout) as RLMResult;
           resolve(parsed);

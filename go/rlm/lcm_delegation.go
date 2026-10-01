@@ -177,7 +177,7 @@ func (r *RLM) DelegateTask(req DelegationRequest) (string, RLMStats, error) {
 
 	subRLM := New(r.recursiveModel, subConfig)
 	subRLM.currentDepth = r.currentDepth + 1
-	subRLM.observer = r.observer
+	subRLM.useSharedObserver(r.observer)
 	defer subRLM.Shutdown()
 
 	r.observer.Debug("lcm.delegation", "Spawning sub-agent at depth %d for: %s",
@@ -232,7 +232,7 @@ func (r *RLM) DelegateTasks(tasks []DelegationRequest) ([]string, []RLMStats, er
 
 			subRLM := New(r.recursiveModel, subConfig)
 			subRLM.currentDepth = r.currentDepth + 1
-			subRLM.observer = r.observer
+			subRLM.useSharedObserver(r.observer)
 			defer subRLM.Shutdown()
 
 			result, stats, err := subRLM.Completion(t.Prompt, "")

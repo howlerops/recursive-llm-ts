@@ -226,7 +226,7 @@ func (am *AgenticMapper) processAgenticItem(item json.RawMessage, config Agentic
 
 		subRLM := New(model, subConfig)
 		subRLM.currentDepth = 1 // Sub-agents start at depth 1
-		subRLM.observer = am.observer
+		subRLM.useSharedObserver(am.observer)
 
 		// Build context with schema instructions if provided
 		context := ""

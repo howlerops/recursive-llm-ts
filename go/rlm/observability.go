@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -13,7 +14,9 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -26,7 +29,8 @@ type ObservabilityConfig struct {
 	// TraceEnabled enables OpenTelemetry tracing
 	TraceEnabled bool `json:"trace_enabled"`
 
-	// TraceEndpoint is the OTLP endpoint for trace export (e.g., "localhost:4317")
+	// TraceEndpoint is the OTLP/HTTP endpoint for trace export (e.g., "http://localhost:4318").
+	// "/v1/traces" is appended. Without an endpoint, spans are pretty-printed to the log output.
 	TraceEndpoint string `json:"trace_endpoint,omitempty"`
 
 	// ServiceName is the service name for traces (default: "rlm")
@@ -138,25 +142,9 @@ func (o *Observer) setupLogger() {
 }
 
 func (o *Observer) setupTracer() {
-	var exporter sdktrace.SpanExporter
-	var err error
-
-	// Use stdout exporter for debug mode, OTLP for production
-	if o.config.Debug || o.config.TraceEndpoint == "" {
-		exporter, err = stdouttrace.New(
-			stdouttrace.WithPrettyPrint(),
-		)
-	} else {
-		// For OTLP endpoint, fall back to stdout for now
-		// Users can configure OTEL_EXPORTER_OTLP_ENDPOINT env var
-		// and use the OTEL SDK's auto-configuration
-		exporter, err = stdouttrace.New(
-			stdouttrace.WithPrettyPrint(),
-		)
-	}
-
+	exporter, err := o.newSpanExporter()
 	if err != nil {
-		o.logger.Printf("Failed to create trace exporter: %v", err)
+		fmt.Fprintf(os.Stderr, "[RLM] failed to create trace exporter: %v\n", err)
 		return
 	}
 
@@ -167,10 +155,62 @@ func (o *Observer) setupTracer() {
 
 	o.provider = sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name", serviceName))),
 	)
 
 	otel.SetTracerProvider(o.provider)
 	o.tracer = o.provider.Tracer(serviceName)
+}
+
+// newSpanExporter returns an OTLP/HTTP exporter when an endpoint is configured,
+// otherwise a pretty-printing exporter on the log output. Spans are never
+// written to stdout, which carries the CLI's JSON response.
+func (o *Observer) newSpanExporter() (sdktrace.SpanExporter, error) {
+	if o.config.TraceEndpoint != "" {
+		endpointURL, warning := otlpTracesURL(o.config.TraceEndpoint)
+		if warning != "" {
+			fmt.Fprintf(os.Stderr, "[RLM] %s\n", warning)
+		}
+		// Headers (e.g. auth) come from OTEL_EXPORTER_OTLP_HEADERS / OTEL_EXPORTER_OTLP_TRACES_HEADERS.
+		return otlptracehttp.New(context.Background(), otlptracehttp.WithEndpointURL(endpointURL))
+	}
+	return stdouttrace.New(stdouttrace.WithPrettyPrint(), stdouttrace.WithWriter(o.traceWriter()))
+}
+
+// traceWriter is where the fallback span exporter writes: the debug log file
+// if one is configured, otherwise stderr.
+func (o *Observer) traceWriter() io.Writer {
+	switch o.config.LogOutput {
+	case "", "stderr", "stdout":
+		return os.Stderr
+	default:
+		if f, err := os.OpenFile(o.config.LogOutput, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+			return f
+		}
+		return os.Stderr
+	}
+}
+
+// otlpTracesURL normalizes a trace endpoint into a full OTLP/HTTP traces URL.
+// Following OTEL_EXPORTER_OTLP_ENDPOINT semantics, "/v1/traces" is appended to
+// the base URL; "host:port" without a scheme is treated as http://host:port.
+func otlpTracesURL(endpoint string) (string, string) {
+	endpoint = strings.TrimSpace(endpoint)
+	if !strings.Contains(endpoint, "://") {
+		endpoint = "http://" + endpoint
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return endpoint, ""
+	}
+	if !strings.HasSuffix(u.Path, "/v1/traces") {
+		u.Path = strings.TrimRight(u.Path, "/") + "/v1/traces"
+	}
+	warning := ""
+	if u.Port() == "4317" {
+		warning = "trace_endpoint uses port 4317, which is usually OTLP/gRPC; RLM exports OTLP/HTTP (usually port 4318)"
+	}
+	return u.String(), warning
 }
 
 // StartTrace begins a new root trace for an RLM operation.

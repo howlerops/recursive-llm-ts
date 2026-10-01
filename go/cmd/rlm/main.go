@@ -14,9 +14,9 @@ type requestPayload struct {
 	Query      string                 `json:"query"`
 	Context    string                 `json:"context"`
 	Config     map[string]interface{} `json:"config"`
-	Structured  *structuredRequest      `json:"structured,omitempty"`
-	LLMMap      *rlm.LLMMapConfig      `json:"llm_map,omitempty"`      // LCM LLM-Map operation
-	AgenticMap  *rlm.AgenticMapConfig  `json:"agentic_map,omitempty"`  // LCM Agentic-Map operation
+	Structured *structuredRequest     `json:"structured,omitempty"`
+	LLMMap     *rlm.LLMMapConfig      `json:"llm_map,omitempty"`     // LCM LLM-Map operation
+	AgenticMap *rlm.AgenticMapConfig  `json:"agentic_map,omitempty"` // LCM Agentic-Map operation
 }
 
 type structuredRequest struct {
@@ -26,13 +26,13 @@ type structuredRequest struct {
 }
 
 type responsePayload struct {
-	Result           interface{}        `json:"result"`
-	Stats            rlm.RLMStats       `json:"stats"`
-	StructuredResult bool               `json:"structured_result,omitempty"`
-	TraceEvents      interface{}        `json:"trace_events,omitempty"`
-	LCMStats          *rlm.LCMStoreStats    `json:"lcm_stats,omitempty"`
-	LLMMapResult      *rlm.LLMMapResult     `json:"llm_map_result,omitempty"`
-	AgenticMapResult  *rlm.AgenticMapResult  `json:"agentic_map_result,omitempty"`
+	Result           interface{}           `json:"result"`
+	Stats            rlm.RLMStats          `json:"stats"`
+	StructuredResult bool                  `json:"structured_result,omitempty"`
+	TraceEvents      interface{}           `json:"trace_events,omitempty"`
+	LCMStats         *rlm.LCMStoreStats    `json:"lcm_stats,omitempty"`
+	LLMMapResult     *rlm.LLMMapResult     `json:"llm_map_result,omitempty"`
+	AgenticMapResult *rlm.AgenticMapResult `json:"agentic_map_result,omitempty"`
 }
 
 func main() {
@@ -54,6 +54,10 @@ func main() {
 	}
 
 	config := rlm.ConfigFromMap(req.Config)
+	// stdout carries the JSON response, so debug logs can't go there.
+	if config.Observability != nil && config.Observability.LogOutput == "stdout" {
+		config.Observability.LogOutput = "stderr"
+	}
 	engine := rlm.New(req.Model, config)
 	defer engine.Shutdown()
 
@@ -88,7 +92,7 @@ func main() {
 			AgenticMapResult: agenticResult,
 		}
 	} else if req.Structured != nil {
-	// Handle structured completion if requested
+		// Handle structured completion if requested
 		structuredConfig := &rlm.StructuredConfig{
 			Schema:            req.Structured.Schema,
 			ParallelExecution: req.Structured.ParallelExecution,

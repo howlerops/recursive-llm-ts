@@ -180,7 +180,7 @@ func TestSQLiteBackend_PersistAndGetMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteBackend(:memory:) error = %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	ts := time.Now().UTC()
 	msg := testStoreMessage("msg_1", RoleAssistant, "sqlite hello", 11, ts, []string{"sqlite.txt"})
@@ -211,7 +211,7 @@ func TestSQLiteBackend_GetAllMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteBackend(:memory:) error = %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	base := time.Now().UTC()
 	m1 := testStoreMessage("msg_1", RoleUser, "first sqlite", 1, base, []string{"1.txt"})
@@ -241,7 +241,7 @@ func TestSQLiteBackend_MessageCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteBackend(:memory:) error = %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	for i := 1; i <= 5; i++ {
 		msg := testStoreMessage(
@@ -271,7 +271,7 @@ func TestSQLiteBackend_PersistAndGetSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteBackend(:memory:) error = %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	node := testSummaryNode("sum_1", SummaryCondensed, "sqlite summary", 13, 2, time.Now().UTC())
 	node.ParentID = "sum_parent"
@@ -299,7 +299,7 @@ func TestSQLiteBackend_UpdateSummaryParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteBackend(:memory:) error = %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	node := testSummaryNode("sum_1", SummaryLeaf, "sqlite summary", 5, 1, time.Now().UTC())
 	if err := backend.PersistSummary(node); err != nil {
@@ -327,7 +327,7 @@ func TestSQLiteBackend_GrepMessages_Simple(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteBackend(:memory:) error = %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	base := time.Now().UTC()
 	msgs := []*StoreMessage{
@@ -360,7 +360,7 @@ func TestSQLiteBackend_GrepMessages_Regex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteBackend(:memory:) error = %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	base := time.Now().UTC()
 	msgs := []*StoreMessage{
@@ -388,7 +388,7 @@ func TestSQLiteBackend_GetMessage_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteBackend(:memory:) error = %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	got, err := backend.GetMessage("does_not_exist")
 	if err != nil {
@@ -404,7 +404,7 @@ func TestSQLiteBackend_GetSummary_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteBackend(:memory:) error = %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	got, err := backend.GetSummary("does_not_exist")
 	if err != nil {
@@ -422,7 +422,7 @@ func TestStoreBackend_InterfaceCompliance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteBackend(:memory:) error = %v", err)
 	}
-	defer sqliteBackend.Close()
+	defer func() { _ = sqliteBackend.Close() }()
 
 	var _ StoreBackend = sqliteBackend
 }

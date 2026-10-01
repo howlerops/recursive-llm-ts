@@ -7,12 +7,19 @@
 - **`require` in the ESM build** — Platform-package lookup and the optional `@aws-sdk/client-s3` loader now use `createRequire(import.meta.url)` in ESM instead of the missing global `require`.
 - **One binary resolver** — `createBridge()` and `GoBridge` share `resolveGoBinary()`: `go_binary_path`, then `RLM_GO_BINARY`, then the platform package (`require.resolve`, then a `node_modules`/`.pnpm` walk), then `<root>/bin`, then `<root>/go`. `go_binary_path` now works without the env var, and an explicit path that does not exist is an error instead of a silent fallback.
 - **Binary-not-found diagnostics** — `RLMBinaryError` now lists the package root, cwd, platform key and every path checked (also available as `error.searched`). `resolveGoBinary()` is exported for diagnostics.
-- **Langfuse export** — `langfuse_enabled` previously only wrote a debug log. The Go engine now sends traces, generations (with token usage) and events to Langfuse's ingestion API, flushed at the end of each call. This is a Go change: it takes effect with a binary built from this source. The `@recursive-llm/*` optional dependencies stay pinned to 5.2.10 until new platform packages are published.
+- **Langfuse export** — `langfuse_enabled` previously only wrote a debug log. The Go engine now sends traces, generations (with token usage) and events to Langfuse's ingestion API, flushed at the end of each call.
 - **Go CLI** — Observability is flushed before the binary exits on an error.
+- **OpenTelemetry** — `trace_enabled` wrote spans to stdout, corrupting the JSON response and failing the call. Spans now go to stderr (or the `log_output` file) when no endpoint is set, and `trace_endpoint` / `OTEL_EXPORTER_OTLP_ENDPOINT` now actually export over OTLP/HTTP (`/v1/traces` is appended; headers via `OTEL_EXPORTER_OTLP_HEADERS`). The service name is set as the `service.name` resource attribute. Note: OTLP/HTTP, not gRPC — use port 4318. The binary grows by about 5 MB.
+- **`log_output: 'stdout'`** — redirected to stderr in the CLI, since stdout carries the response.
+- **Go stderr passthrough** — on success, the binary's stderr (debug logs, export warnings) is written to the Node process's stderr instead of being discarded.
+- **Sub-agents** — sub-agents sharing the parent's observer no longer shut it down (which stopped OTEL tracing and flushed Langfuse mid-run).
+- **Structured output retries** — validation now reports every missing required field and type mismatch in one pass, with nested paths (`owner.email`, `items[2].id`) and deterministic ordering. Retry feedback lists all of them with their types/enums. Responses wrapped in prose or markdown keep their specific error instead of "no valid JSON object matching schema", and malformed JSON gets a JSON-specific hint. Previously a response missing two fields took two retries, and nested misses produced feedback naming a non-existent field.
+- **Platform packages** — `@recursive-llm/*` optional dependencies bumped to 5.2.11 (rebuilt binaries with the Go changes above).
 
 ### Internal
 - Tests for the built ESM/CJS package root, a pnpm layout fixture, config vs env resolution, and Langfuse ingestion.
 - CI and the publish workflow no longer mask `npm test` failures.
+- Go lint (errcheck) clean on golangci-lint v2.
 
 ## [5.1.0] - 2026-03-17
 

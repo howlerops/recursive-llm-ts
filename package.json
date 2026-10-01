@@ -88,10 +88,10 @@
     }
   },
   "optionalDependencies": {
-    "@recursive-llm/darwin-arm64": "5.2.10",
-    "@recursive-llm/darwin-x64": "5.2.10",
-    "@recursive-llm/linux-x64": "5.2.10",
-    "@recursive-llm/linux-arm64": "5.2.10",
-    "@recursive-llm/win32-x64": "5.2.10"
+    "@recursive-llm/darwin-arm64": "5.2.11",
+    "@recursive-llm/darwin-x64": "5.2.11",
+    "@recursive-llm/linux-x64": "5.2.11",
+    "@recursive-llm/linux-arm64": "5.2.11",
+    "@recursive-llm/win32-x64": "5.2.11"
   }
 }

@@ -19,6 +19,7 @@ type RLM struct {
 	repl             *REPLExecutor
 	stats            RLMStats
 	observer         *Observer
+	sharedObserver   bool // observer belongs to a parent RLM; don't shut it down
 	metaAgent        *MetaAgent
 	contextOverflow  *ContextOverflowConfig
 	lcmEngine        *LCMEngine // Lossless Context Management engine (optional)
@@ -349,7 +350,7 @@ func (r *RLM) buildREPLEnv(query string, context string) map[string]interface{} 
 
 		subRLM := New(r.recursiveModel, subConfig)
 		subRLM.currentDepth = r.currentDepth + 1
-		subRLM.observer = r.observer // Share observer for trace continuity
+		subRLM.useSharedObserver(r.observer) // Share observer for trace continuity
 
 		answer, _, err := subRLM.Completion(subQuery, subContext)
 		if err != nil {
@@ -425,9 +426,17 @@ func (r *RLM) AgenticMap(config AgenticMapConfig) (*AgenticMapResult, error) {
 	return mapper.Execute(config)
 }
 
-// Shutdown gracefully shuts down the RLM engine and its observer.
+// Shutdown gracefully shuts down the RLM engine and its observer. An observer
+// shared from a parent RLM is left running; the parent shuts it down.
 func (r *RLM) Shutdown() {
-	if r.observer != nil {
+	if r.observer != nil && !r.sharedObserver {
 		r.observer.Shutdown()
 	}
+}
+
+// useSharedObserver makes a sub-agent report to its parent's observer for
+// trace continuity, without taking over its lifecycle.
+func (r *RLM) useSharedObserver(obs *Observer) {
+	r.observer = obs
+	r.sharedObserver = true
 }

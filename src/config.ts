@@ -121,7 +121,7 @@ export function validateConfig(config: RLMExtendedConfig): ValidationResult {
       issues.push({
         level: 'warning',
         field: 'observability.trace_endpoint',
-        message: 'trace_enabled is true but no trace_endpoint is configured. Traces will not be exported.',
+        message: 'trace_enabled is true but no trace_endpoint is configured. Spans will be printed to stderr (or log_output) instead of exported.',
       });
     }
     if (obs.langfuse_enabled) {

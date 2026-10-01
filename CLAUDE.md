@@ -220,7 +220,7 @@ When observability is configured:
 2. Root trace span is created per completion call
 3. Child spans track: LLM calls, REPL execution, meta-agent, validation
 4. Events are collected and returned in response JSON
-5. OTEL spans are exported to configured endpoint
+5. OTEL spans are exported over OTLP/HTTP to `trace_endpoint` (`/v1/traces` appended); without one they are pretty-printed to stderr/log file — never stdout, which carries the CLI response
 5a. Langfuse (if `langfuse_enabled` + keys): events are buffered by `go/rlm/langfuse.go` and posted to `{host}/api/public/ingestion` on `Observer.Shutdown()` (also before the CLI exits on error)
 6. Debug mode logs all operations to stderr/stdout/file
 
