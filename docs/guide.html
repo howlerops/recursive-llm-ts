@@ -349,7 +349,7 @@ const result = await rlm.completion('what happened?', transcript);</code></pre>
             <pre><code data-lang="typescript">const rlm = new RLM('gpt-4o-mini', {
   observability: {
     trace_enabled: true,
-    trace_endpoint: 'localhost:4317',
+    trace_endpoint: 'http://localhost:4318',
     service_name: 'my-service',
   },
 });</code></pre>

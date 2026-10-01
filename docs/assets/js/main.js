@@ -395,7 +395,7 @@ const rlm = new RLM('gpt-4o-mini', {
   observability: {
     debug: true,
     trace_enabled: true,
-    trace_endpoint: 'localhost:4317',
+    trace_endpoint: 'http://localhost:4318',
     langfuse_enabled: true,
     langfuse_public_key: process.env.LANGFUSE_PUBLIC_KEY,
     langfuse_secret_key: process.env.LANGFUSE_SECRET_KEY,

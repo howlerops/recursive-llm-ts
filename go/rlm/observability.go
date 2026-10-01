@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -13,7 +14,9 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -26,7 +29,8 @@ type ObservabilityConfig struct {
 	// TraceEnabled enables OpenTelemetry tracing
 	TraceEnabled bool `json:"trace_enabled"`
 
-	// TraceEndpoint is the OTLP endpoint for trace export (e.g., "localhost:4317")
+	// TraceEndpoint is the OTLP/HTTP endpoint for trace export (e.g., "http://localhost:4318").
+	// "/v1/traces" is appended. Without an endpoint, spans are pretty-printed to the log output.
 	TraceEndpoint string `json:"trace_endpoint,omitempty"`
 
 	// ServiceName is the service name for traces (default: "rlm")
@@ -35,7 +39,9 @@ type ObservabilityConfig struct {
 	// LogOutput controls where debug logs are written ("stderr", "stdout", or a file path)
 	LogOutput string `json:"log_output,omitempty"`
 
-	// LangfuseEnabled enables Langfuse-compatible trace output
+	// LangfuseEnabled sends traces to Langfuse (requires public and secret keys).
+	// Events are batched and posted to {LangfuseHost}/api/public/ingestion when
+	// the observer shuts down.
 	LangfuseEnabled bool `json:"langfuse_enabled"`
 
 	// LangfusePublicKey is the Langfuse public key
@@ -73,6 +79,7 @@ type Observer struct {
 	provider *sdktrace.TracerProvider
 	rootCtx  context.Context
 	rootSpan trace.Span
+	langfuse *langfuseExporter
 }
 
 // NewObserver creates a new Observer with the given configuration.
@@ -88,6 +95,14 @@ func NewObserver(config ObservabilityConfig) *Observer {
 	// Setup OTEL tracer if enabled
 	if config.TraceEnabled {
 		obs.setupTracer()
+	}
+
+	// Setup Langfuse export if enabled
+	if config.LangfuseEnabled {
+		obs.langfuse = newLangfuseExporter(config)
+		if obs.langfuse == nil {
+			fmt.Fprintln(os.Stderr, "[RLM] langfuse_enabled is set but the public or secret key is missing; Langfuse export is disabled")
+		}
 	}
 
 	return obs
@@ -127,25 +142,9 @@ func (o *Observer) setupLogger() {
 }
 
 func (o *Observer) setupTracer() {
-	var exporter sdktrace.SpanExporter
-	var err error
-
-	// Use stdout exporter for debug mode, OTLP for production
-	if o.config.Debug || o.config.TraceEndpoint == "" {
-		exporter, err = stdouttrace.New(
-			stdouttrace.WithPrettyPrint(),
-		)
-	} else {
-		// For OTLP endpoint, fall back to stdout for now
-		// Users can configure OTEL_EXPORTER_OTLP_ENDPOINT env var
-		// and use the OTEL SDK's auto-configuration
-		exporter, err = stdouttrace.New(
-			stdouttrace.WithPrettyPrint(),
-		)
-	}
-
+	exporter, err := o.newSpanExporter()
 	if err != nil {
-		o.logger.Printf("Failed to create trace exporter: %v", err)
+		fmt.Fprintf(os.Stderr, "[RLM] failed to create trace exporter: %v\n", err)
 		return
 	}
 
@@ -156,14 +155,69 @@ func (o *Observer) setupTracer() {
 
 	o.provider = sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name", serviceName))),
 	)
 
 	otel.SetTracerProvider(o.provider)
 	o.tracer = o.provider.Tracer(serviceName)
 }
 
+// newSpanExporter returns an OTLP/HTTP exporter when an endpoint is configured,
+// otherwise a pretty-printing exporter on the log output. Spans are never
+// written to stdout, which carries the CLI's JSON response.
+func (o *Observer) newSpanExporter() (sdktrace.SpanExporter, error) {
+	if o.config.TraceEndpoint != "" {
+		endpointURL, warning := otlpTracesURL(o.config.TraceEndpoint)
+		if warning != "" {
+			fmt.Fprintf(os.Stderr, "[RLM] %s\n", warning)
+		}
+		// Headers (e.g. auth) come from OTEL_EXPORTER_OTLP_HEADERS / OTEL_EXPORTER_OTLP_TRACES_HEADERS.
+		return otlptracehttp.New(context.Background(), otlptracehttp.WithEndpointURL(endpointURL))
+	}
+	return stdouttrace.New(stdouttrace.WithPrettyPrint(), stdouttrace.WithWriter(o.traceWriter()))
+}
+
+// traceWriter is where the fallback span exporter writes: the debug log file
+// if one is configured, otherwise stderr.
+func (o *Observer) traceWriter() io.Writer {
+	switch o.config.LogOutput {
+	case "", "stderr", "stdout":
+		return os.Stderr
+	default:
+		if f, err := os.OpenFile(o.config.LogOutput, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+			return f
+		}
+		return os.Stderr
+	}
+}
+
+// otlpTracesURL normalizes a trace endpoint into a full OTLP/HTTP traces URL.
+// Following OTEL_EXPORTER_OTLP_ENDPOINT semantics, "/v1/traces" is appended to
+// the base URL; "host:port" without a scheme is treated as http://host:port.
+func otlpTracesURL(endpoint string) (string, string) {
+	endpoint = strings.TrimSpace(endpoint)
+	if !strings.Contains(endpoint, "://") {
+		endpoint = "http://" + endpoint
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return endpoint, ""
+	}
+	if !strings.HasSuffix(u.Path, "/v1/traces") {
+		u.Path = strings.TrimRight(u.Path, "/") + "/v1/traces"
+	}
+	warning := ""
+	if u.Port() == "4317" {
+		warning = "trace_endpoint uses port 4317, which is usually OTLP/gRPC; RLM exports OTLP/HTTP (usually port 4318)"
+	}
+	return u.String(), warning
+}
+
 // StartTrace begins a new root trace for an RLM operation.
 func (o *Observer) StartTrace(name string, attrs map[string]string) context.Context {
+	if o.langfuse != nil {
+		o.langfuse.observeStart(name, attrs)
+	}
 	if o.tracer == nil {
 		o.rootCtx = context.Background()
 		return o.rootCtx
@@ -200,6 +254,9 @@ func (o *Observer) EndTrace(ctx context.Context) {
 
 // StartSpan begins a new child span.
 func (o *Observer) StartSpan(name string, attrs map[string]string) context.Context {
+	if o.langfuse != nil {
+		o.langfuse.observeStart(name, attrs)
+	}
 	if o.tracer == nil {
 		if o.rootCtx == nil {
 			o.rootCtx = context.Background()
@@ -239,11 +296,25 @@ func (o *Observer) EndSpan(ctx context.Context) {
 
 // LLMCall records an LLM API call event.
 func (o *Observer) LLMCall(model string, messageCount int, tokensUsed int, duration time.Duration, err error) {
+	o.LLMCallWithUsage(model, messageCount, &TokenUsage{TotalTokens: tokensUsed}, duration, err)
+}
+
+// LLMCallWithUsage records an LLM API call event with a prompt/completion token breakdown.
+func (o *Observer) LLMCallWithUsage(model string, messageCount int, usage *TokenUsage, duration time.Duration, err error) {
+	if usage == nil {
+		usage = &TokenUsage{}
+	}
 	attrs := map[string]string{
 		"model":         model,
 		"message_count": fmt.Sprintf("%d", messageCount),
-		"tokens_used":   fmt.Sprintf("%d", tokensUsed),
+		"tokens_used":   fmt.Sprintf("%d", usage.TotalTokens),
 		"duration_ms":   fmt.Sprintf("%d", duration.Milliseconds()),
+	}
+	if usage.PromptTokens > 0 {
+		attrs["prompt_tokens"] = fmt.Sprintf("%d", usage.PromptTokens)
+	}
+	if usage.CompletionTokens > 0 {
+		attrs["completion_tokens"] = fmt.Sprintf("%d", usage.CompletionTokens)
 	}
 	if err != nil {
 		attrs["error"] = err.Error()
@@ -341,6 +412,21 @@ func (o *Observer) Shutdown() {
 		defer cancel()
 		_ = o.provider.Shutdown(ctx)
 	}
+	if err := o.FlushLangfuse(); err != nil {
+		// Export failures must not fail the completion; report them on stderr.
+		fmt.Fprintf(os.Stderr, "[RLM] %v\n", err)
+	}
+}
+
+// FlushLangfuse sends any buffered Langfuse events. It is a no-op when
+// Langfuse export is disabled.
+func (o *Observer) FlushLangfuse() error {
+	if o.langfuse == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*langfuseRequestTimeout)
+	defer cancel()
+	return o.langfuse.Flush(ctx)
 }
 
 func (o *Observer) recordEvent(event ObservabilityEvent) {
@@ -353,18 +439,10 @@ func (o *Observer) recordEvent(event ObservabilityEvent) {
 		o.config.OnEvent(event)
 	}
 
-	// Send to Langfuse if enabled
-	if o.config.LangfuseEnabled {
-		o.sendToLangfuse(event)
+	// Buffer for Langfuse if enabled (sent on Shutdown)
+	if o.langfuse != nil {
+		o.langfuse.observe(event)
 	}
-}
-
-func (o *Observer) sendToLangfuse(event ObservabilityEvent) {
-	// Langfuse integration - events are collected and can be sent via the
-	// Langfuse API. This is a lightweight integration that records trace data
-	// in a Langfuse-compatible format. For full Langfuse integration, users
-	// should use the Langfuse SDK directly with the events from GetEvents().
-	o.Debug("langfuse", "Event: %s/%s", event.Type, event.Name)
 }
 
 // mapToAttributes converts a map to OTEL attributes.

@@ -4,6 +4,7 @@ export { RLM, RLMBuilder, RLMCompletionResult, RLMResultFormatter } from './rlm'
 // ─── Types ───────────────────────────────────────────────────────────────────
 export { RLMConfig, RLMResult, RLMStats, MetaAgentConfig, ObservabilityConfig, TraceEvent, FileStorageConfig, ContextOverflowConfig } from './bridge-interface';
 export { BridgeType } from './bridge-factory';
+export { resolveGoBinary, GoBinaryResolution, GoBinarySource } from './binary-resolver';
 export { StructuredRLMResult, SubTask, CoordinatorConfig, SchemaDecomposition } from './structured-types';
 export { RLMExtendedConfig, ValidationResult, ValidationIssue, ValidationLevel, validateConfig, assertValidConfig } from './config';
 

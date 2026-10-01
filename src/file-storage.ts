@@ -1,13 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { FileStorageConfig } from './bridge-interface';
+import { moduleRequire } from './module-context';
 
 // Dynamic loader for optional @aws-sdk/client-s3 dependency.
-// Uses require() to avoid TypeScript resolving the import at compile time.
+// Uses require() to avoid TypeScript resolving the import at compile time;
+// moduleRequire works in both the CJS and ESM builds.
 function loadS3SDK(): any {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('@aws-sdk/client-s3');
+    return moduleRequire('@aws-sdk/client-s3');
   } catch {
     throw new Error(
       'S3 file storage requires @aws-sdk/client-s3. Install it with: npm install @aws-sdk/client-s3'

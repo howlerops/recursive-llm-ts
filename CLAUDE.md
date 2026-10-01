@@ -108,7 +108,9 @@ TypeScript (parses result, exposes trace events)
 - `src/bridge-interface.ts` - Config types (RLMConfig, MetaAgentConfig, ObservabilityConfig, ContextOverflowConfig, LCMConfig, LLMMapConfig, AgenticMapConfig, DelegationRequest, TraceEvent, FileStorageConfig)
 - `src/errors.ts` - Error hierarchy including RLMContextOverflowError, classifyError()
 - `src/file-storage.ts` - File storage providers (LocalFileStorage, S3FileStorage), FileContextBuilder, S3StorageError
-- `src/pkg-dir.ts` - Portable package directory resolution (works in both CJS and ESM)
+- `src/pkg-dir.ts` - Package root resolution, built on `module-context`
+- `src/module-context.ts` / `src-esm/module-context.ts` - Per-format module dir and `require` (CJS uses `__dirname`; the ESM file is compiled over dist/esm by `tsconfig.esm-overrides.json`)
+- `src/binary-resolver.ts` - Single Go binary resolver (`resolveGoBinary`) used by `createBridge()` and `GoBridge`; errors list every path checked
 - `src/go-bridge.ts` - Spawns Go binary, handles stdin/stdout JSON IPC, platform package resolution
 - `src/bridge-factory.ts` - Runtime Go binary detection (platform pkg → local → env), bridge creation
 - `src/structured-types.ts` - TypeScript interfaces for structured output (SubTask, CoordinatorConfig, SchemaDecomposition)
@@ -154,7 +156,9 @@ The Go bridge looks for the binary in this order:
 4. `<pkg-root>/bin/rlm-go` (npm package location)
 5. `<pkg-root>/go/rlm-go` (development location)
 
-Package root is resolved portably via `src/pkg-dir.ts` (handles both CJS `__dirname` and ESM `import.meta.url`).
+An explicit path (1 or 2) that does not exist is an error, not a fallback. All lookups go through `resolveGoBinary()` in `src/binary-resolver.ts`.
+
+Package root is resolved via `src/pkg-dir.ts`, which reads the module directory from `module-context` (`src/module-context.ts` for CJS, `src-esm/module-context.ts` for ESM; `scripts/post-build.js` fails the build if the ESM override is missing).
 
 ### Structured Output Flow
 
@@ -216,7 +220,8 @@ When observability is configured:
 2. Root trace span is created per completion call
 3. Child spans track: LLM calls, REPL execution, meta-agent, validation
 4. Events are collected and returned in response JSON
-5. OTEL spans are exported to configured endpoint
+5. OTEL spans are exported over OTLP/HTTP to `trace_endpoint` (`/v1/traces` appended); without one they are pretty-printed to stderr/log file — never stdout, which carries the CLI response
+5a. Langfuse (if `langfuse_enabled` + keys): events are buffered by `go/rlm/langfuse.go` and posted to `{host}/api/public/ingestion` on `Observer.Shutdown()` (also before the CLI exits on error)
 6. Debug mode logs all operations to stderr/stdout/file
 
 ### LCM (Lossless Context Management) Architecture

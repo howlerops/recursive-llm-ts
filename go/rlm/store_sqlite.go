@@ -182,7 +182,7 @@ ORDER BY timestamp ASC;
 	if err != nil {
 		return nil, fmt.Errorf("query all messages: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	messages := make([]*StoreMessage, 0)
 	for rows.Next() {
@@ -271,7 +271,7 @@ ORDER BY created_at ASC;
 	if err != nil {
 		return nil, fmt.Errorf("query all summaries: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	summaries := make([]*SummaryNode, 0)
 	for rows.Next() {
@@ -321,7 +321,7 @@ WHERE messages_fts MATCH ?
 ORDER BY m.timestamp ASC;
 `, ftsQuery)
 		if ftsErr == nil {
-			defer rows.Close()
+			defer func() { _ = rows.Close() }()
 
 			results := make([]*StoreMessage, 0, maxResults)
 			for rows.Next() {

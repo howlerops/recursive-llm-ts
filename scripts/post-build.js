@@ -71,3 +71,20 @@ function fixEsmImports(dir) {
 
 fixEsmImports(esmDir);
 console.log('[recursive-llm-ts] ✓ ESM import paths fixed (.js extensions added)');
+
+// ── Step 3: Verify per-format module context ───────────────────────────
+// src/module-context.ts (CJS) is overwritten in dist/esm by the ESM
+// implementation from src-esm/ (see tsconfig.esm-overrides.json). Fail the
+// build if the override did not run, since the CJS version cannot locate the
+// package from an ES module.
+const esmContext = fs.readFileSync(path.join(esmDir, 'module-context.js'), 'utf8');
+const cjsContext = fs.readFileSync(path.join(distDir, 'cjs', 'module-context.js'), 'utf8');
+if (!esmContext.includes('import.meta.url') || /\b__dirname\b/.test(esmContext)) {
+  console.error('[recursive-llm-ts] ✗ dist/esm/module-context.js is not the ESM implementation (run tsc -p tsconfig.esm-overrides.json)');
+  process.exit(1);
+}
+if (!/\b__dirname\b/.test(cjsContext)) {
+  console.error('[recursive-llm-ts] ✗ dist/cjs/module-context.js is not the CJS implementation');
+  process.exit(1);
+}
+console.log('[recursive-llm-ts] ✓ Per-format module context verified');

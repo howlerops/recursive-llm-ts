@@ -343,7 +343,7 @@ export class RLM {
 
   private async ensureBridge(): Promise<Bridge> {
     if (!this.bridge) {
-      this.bridge = await createBridge(this.bridgeType);
+      this.bridge = await createBridge(this.bridgeType, this.rlmConfig);
     }
     return this.bridge;
   }

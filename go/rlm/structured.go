@@ -2,6 +2,7 @@ package rlm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -585,7 +586,8 @@ func parseAndValidateJSON(result string, schema *JSONSchema) (map[string]interfa
 	var parsed map[string]interface{}
 
 	// First, try to parse the entire trimmed string
-	if err := json.Unmarshal([]byte(result), &parsed); err == nil {
+	fullParseErr := json.Unmarshal([]byte(result), &parsed)
+	if fullParseErr == nil {
 		if err := validateAgainstSchema(parsed, schema); err != nil {
 			return nil, err
 		}
@@ -599,16 +601,31 @@ func parseAndValidateJSON(result string, schema *JSONSchema) (map[string]interfa
 		return nil, fmt.Errorf("no JSON object found in response: %s", truncateForError(result))
 	}
 
-	// Try each candidate until we find one that validates
+	// Try each candidate until we find one that validates. If none does, report
+	// the issues of the closest candidate so the retry feedback can name them.
+	var closest *SchemaValidationError
+	parsedAny := false
 	for _, candidate := range jsonCandidates {
 		var candidateMap map[string]interface{}
 		if err := json.Unmarshal([]byte(candidate), &candidateMap); err == nil {
-			if err := validateAgainstSchema(candidateMap, schema); err == nil {
+			parsedAny = true
+			err := validateAgainstSchema(candidateMap, schema)
+			if err == nil {
 				return candidateMap, nil
+			}
+			var verr *SchemaValidationError
+			if errors.As(err, &verr) && (closest == nil || verr.issueCount() < closest.issueCount()) {
+				closest = verr
 			}
 		}
 	}
 
+	if closest != nil {
+		return nil, closest
+	}
+	if !parsedAny {
+		return nil, fmt.Errorf("failed to parse JSON: %v", fullParseErr)
+	}
 	return nil, fmt.Errorf("no valid JSON object matching schema found in response")
 }
 
@@ -624,81 +641,6 @@ func truncateForError(s string) string {
 	return s
 }
 
-// validateAgainstSchema validates data against a JSON schema
-func validateAgainstSchema(data map[string]interface{}, schema *JSONSchema) error {
-	if schema.Type != "object" {
-		return nil // Only validate object types for now
-	}
-
-	// Check required fields
-	for _, required := range schema.Required {
-		if _, exists := data[required]; !exists {
-			return fmt.Errorf("missing required field: %s", required)
-		}
-	}
-
-	// Validate properties
-	if schema.Properties != nil {
-		for key, fieldSchema := range schema.Properties {
-			value, exists := data[key]
-			if !exists && contains(schema.Required, key) {
-				return fmt.Errorf("missing required field: %s", key)
-			}
-			if exists {
-				if err := validateValue(value, fieldSchema); err != nil {
-					return fmt.Errorf("field %s: %w", key, err)
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-// validateValue validates a value against a schema
-func validateValue(value interface{}, schema *JSONSchema) error {
-	if value == nil && schema.Nullable {
-		return nil
-	}
-
-	switch schema.Type {
-	case "string":
-		if _, ok := value.(string); !ok {
-			return fmt.Errorf("expected string, got %T", value)
-		}
-	case "number", "integer":
-		switch value.(type) {
-		case float64, float32, int, int32, int64:
-			return nil
-		default:
-			return fmt.Errorf("expected number, got %T", value)
-		}
-	case "boolean":
-		if _, ok := value.(bool); !ok {
-			return fmt.Errorf("expected boolean, got %T", value)
-		}
-	case "array":
-		arr, ok := value.([]interface{})
-		if !ok {
-			return fmt.Errorf("expected array, got %T", value)
-		}
-		if schema.Items != nil {
-			for i, item := range arr {
-				if err := validateValue(item, schema.Items); err != nil {
-					return fmt.Errorf("array item %d: %w", i, err)
-				}
-			}
-		}
-	case "object":
-		obj, ok := value.(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("expected object, got %T", value)
-		}
-		return validateAgainstSchema(obj, schema)
-	}
-
-	return nil
-}
 
 func contains(arr []string, item string) bool {
 	for _, v := range arr {
@@ -791,44 +733,28 @@ func buildValidationFeedback(validationErr error, schema *JSONSchema, previousRe
 	feedback.WriteString("VALIDATION ERROR - Your previous response was invalid.\n\n")
 	fmt.Fprintf(&feedback, "ERROR: %s\n\n", errMsg)
 
-	// Extract what field caused the issue
-	if strings.Contains(errMsg, "missing required field:") {
-		// Parse out the field name
-		fieldName := strings.TrimPrefix(errMsg, "missing required field: ")
-		fieldName = strings.TrimSpace(fieldName)
+	var verr *SchemaValidationError
+	switch {
+	case errors.As(validationErr, &verr):
+		feedback.WriteString("SPECIFIC ISSUES:\n")
+		if len(verr.Missing) > 0 {
+			fmt.Fprintf(&feedback, "These REQUIRED fields were not provided: %s\n", strings.Join(verr.Missing, ", "))
+		}
+		for _, invalid := range verr.Invalid {
+			fmt.Fprintf(&feedback, "- %s\n", invalid)
+		}
+		feedback.WriteString("\n")
 
-		feedback.WriteString("SPECIFIC ISSUE:\n")
-		fmt.Fprintf(&feedback, "The field '%s' is REQUIRED but was not provided.\n\n", fieldName)
-
-		// Find the schema for this field and provide details
-		if schema.Type == "object" && schema.Properties != nil {
-			if fieldSchema, exists := schema.Properties[fieldName]; exists {
-				feedback.WriteString("FIELD REQUIREMENTS:\n")
-				fmt.Fprintf(&feedback, "- Field name: '%s'\n", fieldName)
-				fmt.Fprintf(&feedback, "- Type: %s\n", fieldSchema.Type)
-
-				if fieldSchema.Type == "object" && len(fieldSchema.Required) > 0 {
-					fmt.Fprintf(&feedback, "- This is an object with required fields: %s\n", strings.Join(fieldSchema.Required, ", "))
-
-					if fieldSchema.Properties != nil {
-						feedback.WriteString("\nNESTED FIELD DETAILS:\n")
-						for nestedField, nestedSchema := range fieldSchema.Properties {
-							isRequired := contains(fieldSchema.Required, nestedField)
-							requiredMark := ""
-							if isRequired {
-								requiredMark = " [REQUIRED]"
-							}
-							fmt.Fprintf(&feedback, "  - %s: %s%s\n", nestedField, nestedSchema.Type, requiredMark)
-						}
-					}
-				}
-
-				if fieldSchema.Type == "array" && fieldSchema.Items != nil {
-					fmt.Fprintf(&feedback, "- This is an array of: %s\n", fieldSchema.Items.Type)
-				}
+		if len(verr.Missing) > 0 {
+			feedback.WriteString("FIELD REQUIREMENTS:\n")
+			for _, fieldPath := range verr.Missing {
+				writeFieldRequirements(&feedback, fieldPath, schemaAtPath(schema, fieldPath))
 			}
 		}
-	} else if strings.Contains(errMsg, "expected") {
+	case strings.Contains(errMsg, "parse JSON") || strings.Contains(errMsg, "no JSON object found"):
+		feedback.WriteString("SPECIFIC ISSUE:\n")
+		feedback.WriteString("Your response was not valid JSON. Return a single JSON object with double-quoted keys and strings, no trailing commas, no comments and no surrounding text.\n\n")
+	case strings.Contains(errMsg, "expected"):
 		feedback.WriteString("SPECIFIC ISSUE:\n")
 		feedback.WriteString("Type mismatch - you provided the wrong data type.\n\n")
 	}

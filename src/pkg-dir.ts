@@ -1,36 +1,16 @@
 /**
  * Portable package directory resolution.
  *
- * Works in both CommonJS and ESM contexts by detecting the available
- * globals and falling back gracefully. The resolved path always points
- * to the package root (parent of the dist/cjs or dist/esm directory).
+ * The compiled module's own directory comes from ./module-context, which has
+ * a separate implementation per output format (__dirname for CJS,
+ * import.meta.url for ESM). The resolved root always points to the package
+ * root (parent of the dist/cjs or dist/esm directory).
  */
 import * as path from 'path';
-import { fileURLToPath } from 'url';
-
-function resolveCurrentDir(): string {
-  // CJS — __dirname is defined natively by Node
-  if (typeof __dirname !== 'undefined') {
-    return __dirname;
-  }
-
-  // ESM — derive from import.meta.url via indirect eval to avoid CJS parse errors.
-  // This branch only runs in ESM where import.meta is valid syntax.
-  try {
-    const meta = new Function('return import.meta')() as { url: string };
-    if (meta && typeof meta.url === 'string') {
-      return path.dirname(fileURLToPath(meta.url));
-    }
-  } catch {
-    // Not in ESM or import.meta not supported
-  }
-
-  // Last resort: use process.cwd()
-  return process.cwd();
-}
+import { MODULE_DIR } from './module-context';
 
 /** Directory containing the compiled JS file (dist/cjs or dist/esm or dist) */
-export const PKG_DIST_DIR = resolveCurrentDir();
+export const PKG_DIST_DIR = MODULE_DIR;
 
 /**
  * Package root directory.

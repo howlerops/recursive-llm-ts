@@ -1,6 +1,6 @@
 {
   "name": "recursive-llm-ts",
-  "version": "5.2.10",
+  "version": "5.2.11",
   "description": "TypeScript bridge for recursive-llm: Recursive Language Models for unbounded context processing with structured outputs",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
@@ -24,9 +24,9 @@
     "scripts/build-go-binary.js"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json && node scripts/post-build.js",
+    "build": "tsc -p tsconfig.cjs.json && npm run build:esm && node scripts/post-build.js",
     "build:cjs": "tsc -p tsconfig.cjs.json",
-    "build:esm": "tsc -p tsconfig.esm.json",
+    "build:esm": "tsc -p tsconfig.esm.json && tsc -p tsconfig.esm-overrides.json",
     "postinstall": "node scripts/build-go-binary.js",
     "prepublishOnly": "npm run build",
     "release": "./scripts/release.sh",
@@ -88,10 +88,10 @@
     }
   },
   "optionalDependencies": {
-    "@recursive-llm/darwin-arm64": "5.2.10",
-    "@recursive-llm/darwin-x64": "5.2.10",
-    "@recursive-llm/linux-x64": "5.2.10",
-    "@recursive-llm/linux-arm64": "5.2.10",
-    "@recursive-llm/win32-x64": "5.2.10"
+    "@recursive-llm/darwin-arm64": "5.2.11",
+    "@recursive-llm/darwin-x64": "5.2.11",
+    "@recursive-llm/linux-x64": "5.2.11",
+    "@recursive-llm/linux-arm64": "5.2.11",
+    "@recursive-llm/win32-x64": "5.2.11"
   }
 }

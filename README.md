@@ -505,7 +505,7 @@ const rlm = new RLM('gpt-4o-mini', {
   api_key: process.env.OPENAI_API_KEY,
   observability: {
     trace_enabled: true,
-    trace_endpoint: 'localhost:4317',  // OTLP endpoint
+    trace_endpoint: 'http://localhost:4318',  // OTLP/HTTP endpoint ("/v1/traces" is appended)
     service_name: 'my-rlm-service'
   }
 });
@@ -516,6 +516,8 @@ const result = await rlm.completion('Summarize', document);
 const events = rlm.getTraceEvents();
 console.log('Trace events:', events);
 ```
+
+Spans are exported over OTLP/HTTP; auth headers can be set with `OTEL_EXPORTER_OTLP_HEADERS`. Without `trace_endpoint`, spans are pretty-printed to stderr (or the `log_output` file). The Go binary's stderr (debug logs, export warnings) is passed through to your process's stderr; `log_output: 'stdout'` is redirected to stderr because stdout carries the binary's JSON response.
 
 #### Langfuse Integration
 
@@ -530,6 +532,8 @@ const rlm = new RLM('gpt-4o-mini', {
   }
 });
 ```
+
+Each completion becomes one Langfuse trace. LLM calls are recorded as generations (model, duration, prompt/completion/total token usage, errors), and errors and engine events as trace events. The Go binary buffers events and posts them to `{langfuse_host}/api/public/ingestion` in batches when the call finishes, including when it fails. Export failures are written to stderr and never fail the completion. Prompts and responses are not sent.
 
 #### Environment Variable Configuration
 
@@ -859,7 +863,7 @@ interface MetaAgentConfig {
 interface ObservabilityConfig {
   debug?: boolean;               // Enable verbose debug logging
   trace_enabled?: boolean;       // Enable OpenTelemetry tracing
-  trace_endpoint?: string;       // OTLP endpoint (e.g., "localhost:4317")
+  trace_endpoint?: string;       // OTLP/HTTP endpoint (e.g., "http://localhost:4318")
   service_name?: string;         // Service name for traces (default: "rlm")
   log_output?: string;           // Log destination: "stderr", "stdout", or file path
   langfuse_enabled?: boolean;    // Enable Langfuse integration
