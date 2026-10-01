@@ -3,6 +3,7 @@
  * Post-build script:
  * 1. Writes package.json marker files into dist/cjs and dist/esm
  * 2. Adds .js extensions to ESM import/export paths (required by Node ESM)
+ * 3. Gives the ESM pkg-dir a real `import.meta` so it resolves its own location
  */
 const fs = require('fs');
 const path = require('path');
@@ -71,3 +72,21 @@ function fixEsmImports(dir) {
 
 fixEsmImports(esmDir);
 console.log('[recursive-llm-ts] ✓ ESM import paths fixed (.js extensions added)');
+
+// ── Step 3: Real import.meta in the ESM pkg-dir ────────────────────────
+// src/pkg-dir.ts must compile for CJS too, so it reaches import.meta via
+// `new Function('return import.meta')()`. That can never work: Function bodies
+// are parsed as scripts, so it throws and pkg-dir falls back to process.cwd().
+// In ESM consumers (e.g. an app started from /app) PKG_ROOT_DIR then resolves to
+// '/', and the platform Go binary is never found. Use import.meta directly here.
+const esmPkgDir = path.join(esmDir, 'pkg-dir.js');
+const indirectImportMeta = "new Function('return import.meta')()";
+const pkgDirSource = fs.readFileSync(esmPkgDir, 'utf8');
+const occurrences = pkgDirSource.split(indirectImportMeta).length - 1;
+if (occurrences !== 1) {
+  throw new Error(
+    `[recursive-llm-ts] expected exactly one indirect import.meta in ${esmPkgDir}, found ${occurrences}`
+  );
+}
+fs.writeFileSync(esmPkgDir, pkgDirSource.replace(indirectImportMeta, 'import.meta'));
+console.log('[recursive-llm-ts] ✓ ESM pkg-dir uses import.meta');

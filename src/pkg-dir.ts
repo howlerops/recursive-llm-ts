@@ -14,8 +14,9 @@ function resolveCurrentDir(): string {
     return __dirname;
   }
 
-  // ESM — derive from import.meta.url via indirect eval to avoid CJS parse errors.
-  // This branch only runs in ESM where import.meta is valid syntax.
+  // ESM — derive from import.meta.url. `new Function` keeps this file compilable for CJS,
+  // but cannot see import.meta itself; scripts/post-build.js rewrites it to a real
+  // `import.meta` in dist/esm/pkg-dir.js.
   try {
     const meta = new Function('return import.meta')() as { url: string };
     if (meta && typeof meta.url === 'string') {
