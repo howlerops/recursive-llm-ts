@@ -531,6 +531,8 @@ const rlm = new RLM('gpt-4o-mini', {
 });
 ```
 
+Each completion becomes one Langfuse trace. LLM calls are recorded as generations (model, duration, prompt/completion/total token usage, errors), and errors and engine events as trace events. The Go binary buffers events and posts them to `{langfuse_host}/api/public/ingestion` in batches when the call finishes, including when it fails. Export failures are written to stderr and never fail the completion. Prompts and responses are not sent.
+
 #### Environment Variable Configuration
 
 Observability can also be configured via environment variables:

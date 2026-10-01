@@ -57,14 +57,21 @@ func main() {
 	engine := rlm.New(req.Model, config)
 	defer engine.Shutdown()
 
+	// os.Exit skips deferred calls, so flush observability (e.g. Langfuse)
+	// before exiting on an error.
+	fail := func(err error) {
+		fmt.Fprintln(os.Stderr, err)
+		engine.Shutdown()
+		os.Exit(1)
+	}
+
 	var resp responsePayload
 
 	// Handle LLM-Map operation if requested
 	if req.LLMMap != nil {
 		mapResult, err := engine.LLMMap(*req.LLMMap)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			fail(err)
 		}
 		resp = responsePayload{
 			Result:       "llm_map_complete",
@@ -74,8 +81,7 @@ func main() {
 		// Handle Agentic-Map operation
 		agenticResult, err := engine.AgenticMap(*req.AgenticMap)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			fail(err)
 		}
 		resp = responsePayload{
 			Result:           "agentic_map_complete",
@@ -91,8 +97,7 @@ func main() {
 
 		result, stats, err := engine.StructuredCompletion(req.Query, req.Context, structuredConfig)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			fail(err)
 		}
 
 		resp = responsePayload{
@@ -104,8 +109,7 @@ func main() {
 		// Regular completion
 		result, stats, err := engine.Completion(req.Query, req.Context)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			fail(err)
 		}
 
 		resp = responsePayload{

@@ -27,7 +27,7 @@ export interface ObservabilityConfig {
   trace_endpoint?: string; // OTLP endpoint for trace export (e.g., "localhost:4317")
   service_name?: string; // Service name for traces (default: "rlm")
   log_output?: string; // Where to write debug logs ("stderr", "stdout", or a file path)
-  langfuse_enabled?: boolean; // Enable Langfuse-compatible trace output
+  langfuse_enabled?: boolean; // Send traces to Langfuse (batched to {langfuse_host}/api/public/ingestion at the end of each call)
   langfuse_public_key?: string; // Langfuse public key
   langfuse_secret_key?: string; // Langfuse secret key
   langfuse_host?: string; // Langfuse API host (default: "https://cloud.langfuse.com")

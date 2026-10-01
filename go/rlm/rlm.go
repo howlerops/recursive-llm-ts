@@ -312,7 +312,7 @@ func (r *RLM) callLLM(messages []Message) (string, error) {
 		tokensUsed = result.Usage.TotalTokens
 	}
 
-	r.observer.LLMCall(defaultModel, len(messages), tokensUsed, duration, err)
+	r.observer.LLMCallWithUsage(defaultModel, len(messages), result.Usage, duration, err)
 
 	if err != nil {
 		return "", err

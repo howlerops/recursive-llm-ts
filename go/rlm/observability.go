@@ -35,7 +35,9 @@ type ObservabilityConfig struct {
 	// LogOutput controls where debug logs are written ("stderr", "stdout", or a file path)
 	LogOutput string `json:"log_output,omitempty"`
 
-	// LangfuseEnabled enables Langfuse-compatible trace output
+	// LangfuseEnabled sends traces to Langfuse (requires public and secret keys).
+	// Events are batched and posted to {LangfuseHost}/api/public/ingestion when
+	// the observer shuts down.
 	LangfuseEnabled bool `json:"langfuse_enabled"`
 
 	// LangfusePublicKey is the Langfuse public key
@@ -73,6 +75,7 @@ type Observer struct {
 	provider *sdktrace.TracerProvider
 	rootCtx  context.Context
 	rootSpan trace.Span
+	langfuse *langfuseExporter
 }
 
 // NewObserver creates a new Observer with the given configuration.
@@ -88,6 +91,14 @@ func NewObserver(config ObservabilityConfig) *Observer {
 	// Setup OTEL tracer if enabled
 	if config.TraceEnabled {
 		obs.setupTracer()
+	}
+
+	// Setup Langfuse export if enabled
+	if config.LangfuseEnabled {
+		obs.langfuse = newLangfuseExporter(config)
+		if obs.langfuse == nil {
+			fmt.Fprintln(os.Stderr, "[RLM] langfuse_enabled is set but the public or secret key is missing; Langfuse export is disabled")
+		}
 	}
 
 	return obs
@@ -164,6 +175,9 @@ func (o *Observer) setupTracer() {
 
 // StartTrace begins a new root trace for an RLM operation.
 func (o *Observer) StartTrace(name string, attrs map[string]string) context.Context {
+	if o.langfuse != nil {
+		o.langfuse.observeStart(name, attrs)
+	}
 	if o.tracer == nil {
 		o.rootCtx = context.Background()
 		return o.rootCtx
@@ -200,6 +214,9 @@ func (o *Observer) EndTrace(ctx context.Context) {
 
 // StartSpan begins a new child span.
 func (o *Observer) StartSpan(name string, attrs map[string]string) context.Context {
+	if o.langfuse != nil {
+		o.langfuse.observeStart(name, attrs)
+	}
 	if o.tracer == nil {
 		if o.rootCtx == nil {
 			o.rootCtx = context.Background()
@@ -239,11 +256,25 @@ func (o *Observer) EndSpan(ctx context.Context) {
 
 // LLMCall records an LLM API call event.
 func (o *Observer) LLMCall(model string, messageCount int, tokensUsed int, duration time.Duration, err error) {
+	o.LLMCallWithUsage(model, messageCount, &TokenUsage{TotalTokens: tokensUsed}, duration, err)
+}
+
+// LLMCallWithUsage records an LLM API call event with a prompt/completion token breakdown.
+func (o *Observer) LLMCallWithUsage(model string, messageCount int, usage *TokenUsage, duration time.Duration, err error) {
+	if usage == nil {
+		usage = &TokenUsage{}
+	}
 	attrs := map[string]string{
 		"model":         model,
 		"message_count": fmt.Sprintf("%d", messageCount),
-		"tokens_used":   fmt.Sprintf("%d", tokensUsed),
+		"tokens_used":   fmt.Sprintf("%d", usage.TotalTokens),
 		"duration_ms":   fmt.Sprintf("%d", duration.Milliseconds()),
+	}
+	if usage.PromptTokens > 0 {
+		attrs["prompt_tokens"] = fmt.Sprintf("%d", usage.PromptTokens)
+	}
+	if usage.CompletionTokens > 0 {
+		attrs["completion_tokens"] = fmt.Sprintf("%d", usage.CompletionTokens)
 	}
 	if err != nil {
 		attrs["error"] = err.Error()
@@ -341,6 +372,21 @@ func (o *Observer) Shutdown() {
 		defer cancel()
 		_ = o.provider.Shutdown(ctx)
 	}
+	if err := o.FlushLangfuse(); err != nil {
+		// Export failures must not fail the completion; report them on stderr.
+		fmt.Fprintf(os.Stderr, "[RLM] %v\n", err)
+	}
+}
+
+// FlushLangfuse sends any buffered Langfuse events. It is a no-op when
+// Langfuse export is disabled.
+func (o *Observer) FlushLangfuse() error {
+	if o.langfuse == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*langfuseRequestTimeout)
+	defer cancel()
+	return o.langfuse.Flush(ctx)
 }
 
 func (o *Observer) recordEvent(event ObservabilityEvent) {
@@ -353,18 +399,10 @@ func (o *Observer) recordEvent(event ObservabilityEvent) {
 		o.config.OnEvent(event)
 	}
 
-	// Send to Langfuse if enabled
-	if o.config.LangfuseEnabled {
-		o.sendToLangfuse(event)
+	// Buffer for Langfuse if enabled (sent on Shutdown)
+	if o.langfuse != nil {
+		o.langfuse.observe(event)
 	}
-}
-
-func (o *Observer) sendToLangfuse(event ObservabilityEvent) {
-	// Langfuse integration - events are collected and can be sent via the
-	// Langfuse API. This is a lightweight integration that records trace data
-	// in a Langfuse-compatible format. For full Langfuse integration, users
-	// should use the Langfuse SDK directly with the events from GetEvents().
-	o.Debug("langfuse", "Event: %s/%s", event.Type, event.Name)
 }
 
 // mapToAttributes converts a map to OTEL attributes.
